@@ -1,0 +1,6 @@
+{
+  "name": "BOTTOM LINE | 상업용 부동산 입점 의사결정 도구",
+  "description": "매출 추정(Top-Line)을 넘어 원가·인건비·임대료 비용 구조(Bottom-Line)와 6대 법률·행정 규제(Risk)를 종합 심사하여 진입·조건부·보류를 과학적으로 판정하는 상업용 부동산 의사결정 지원 플랫폼",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
