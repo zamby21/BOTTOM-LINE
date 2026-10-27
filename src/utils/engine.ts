@@ -280,7 +280,7 @@ export function evaluateRiskRules(candidate: CandidateLocation): RiskEvaluation 
     statusText: r4StatusText,
     detail: r4Detail,
     legalBasis: '교육환경 보호에 관한 법률 제8조(교육환경보호구역 설정), 제9조(금지행위)',
-    dataSource: '토지e음 및 교육환경정보시스템(학교환경위생정화구역도)',
+    dataSource: '교육환경정보시스템 GIS (eeis.schoolkeepa.or.kr) 및 토지e음',
     actionGuide: candidate.schoolZone === 'relative'
       ? '임대차 계약서 작성 시 "교육지원청 심의 부결 시 계약금 전액 반환 및 위약금 없이 해제" 특약을 반드시 명시하십시오.'
       : '학교 및 유치원 경계 반경을 실측 지도에서 확인하십시오.',

@@ -14,7 +14,6 @@ import {
   Scale,
   Sparkles,
   ArrowRight,
-  FileText,
   BarChart3,
   Percent,
 } from 'lucide-react';

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Search, X, MapPin, Building, Sparkles, AlertCircle } from 'lucide-react';
 
-interface AddressSearchResult {
+export interface AddressSearchResult {
   fullAddress: string;
   roadAddress: string;
   jibunAddress: string;

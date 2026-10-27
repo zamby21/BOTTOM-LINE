@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CandidateLocation, RiskEvaluation, RiskRuleResult } from '../types/decision';
 import { evaluateRiskRules } from '../utils/engine';
+import { EEIS_GIS_URL } from '../utils/regulatoryPredictor';
 import {
   ShieldAlert,
   ArrowRight,
@@ -14,6 +15,10 @@ import {
   GraduationCap,
   Flame,
   FileSpreadsheet,
+  ExternalLink,
+  Copy,
+  Check,
+  Map,
 } from 'lucide-react';
 
 interface S5RiskProps {
@@ -27,6 +32,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
   onNext,
   onPrev,
 }) => {
+  const [gisCopied, setGisCopied] = useState(false);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
 
   const rules: { rule: RiskRuleResult; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -210,6 +216,63 @@ export const S5Risk: React.FC<S5RiskProps> = ({
                 </span>
                 {rule.actionGuide}
               </div>
+
+              {/* R4 Specific Action: Direct link to EEIS GIS with Candidate Address */}
+              {rule.code === 'R4' && (
+                <div className="mt-3 p-2.5 rounded-xl bg-indigo-50/80 border border-indigo-200/80 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-indigo-900">연동 주소 정화구역 GIS 지도 조회</span>
+                    <span className="text-[10px] text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded font-semibold">
+                      eeis.schoolkeepa.or.kr
+                    </span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-700 truncate font-mono">
+                      {candidate.address || '주소 정보 없음'}
+                    </span>
+                    <a
+                      href={EEIS_GIS_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => {
+                        if (candidate.address) {
+                          navigator.clipboard.writeText(candidate.address);
+                          setGisCopied(true);
+                          setTimeout(() => setGisCopied(false), 4000);
+                        }
+                      }}
+                      className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] flex-shrink-0 transition-all shadow-2xs cursor-pointer"
+                    >
+                      <Map className="w-3 h-3" />
+                      {gisCopied ? '주소 복사됨! GIS 열림' : 'GIS 지도에서 주소 확인'}
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                  {gisCopied && (
+                    <div className="text-[10px] text-emerald-700 font-bold flex items-center gap-1 animate-fadeIn">
+                      <Check className="w-3 h-3 flex-shrink-0" />
+                      후보지 주소가 복사되었습니다! 열린 지도 검색창에 Ctrl+V로 붙여넣으세요.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* R2 Specific Action: Direct link to Gov24 */}
+              {rule.code === 'R2' && (
+                <div className="mt-3 p-2.5 rounded-xl bg-rose-50/80 border border-rose-200/80 flex items-center justify-between gap-2 text-[11px]">
+                  <span className="text-slate-700 font-medium">정부24 건축물대장 표제부 즉시 열람:</span>
+                  <a
+                    href="https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000026"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-[11px] flex-shrink-0 transition-colors shadow-2xs"
+                  >
+                    <FileCheck className="w-3 h-3" />
+                    정부24 열람 바로가기
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                </div>
+              )}
             </div>
           );
         })}

@@ -29,6 +29,14 @@ export const VerificationLinksCard: React.FC<VerificationLinksCardProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handlePortalClick = () => {
+    if (currentAddress) {
+      navigator.clipboard.writeText(currentAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
   return (
     <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm border border-slate-800 space-y-4">
       <div className="flex items-center justify-between">
@@ -44,7 +52,7 @@ export const VerificationLinksCard: React.FC<VerificationLinksCardProps> = ({
               </span>
             </h4>
             <p className="text-[11px] text-slate-400">
-              건축물대장 위반 표기 및 교육환경보호구역 저촉 여부를 공식 전산망에서 즉시 확인하세요.
+              건축물대장 위반 표기 및 교육환경보호구역 저촉 여부를 공식 전산망에서 즉시 확인하세요. (클릭 시 주소 자동 복사)
             </p>
           </div>
         </div>
@@ -68,10 +76,10 @@ export const VerificationLinksCard: React.FC<VerificationLinksCardProps> = ({
           <button
             type="button"
             onClick={handleCopyAddress}
-            className="flex-shrink-0 ml-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-[11px] transition-colors"
+            className="flex-shrink-0 ml-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-[11px] transition-colors cursor-pointer"
           >
             {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-            {copied ? '복사완료' : '주소 복사'}
+            {copied ? '복사완료!' : '주소 복사'}
           </button>
         </div>
       )}
@@ -84,6 +92,7 @@ export const VerificationLinksCard: React.FC<VerificationLinksCardProps> = ({
               href={portal.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={handlePortalClick}
               className="group block p-3.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/80 hover:border-blue-500/60 transition-all text-left"
             >
               <div className="flex items-start justify-between gap-2">

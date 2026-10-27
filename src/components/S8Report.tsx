@@ -12,8 +12,6 @@ import {
   Building2,
   ShieldCheck,
   CheckCircle2,
-  AlertTriangle,
-  XCircle,
   TrendingUp,
 } from 'lucide-react';
 
