@@ -127,6 +127,10 @@ export interface CandidateLocation {
   // 저장된 AI 해설 리포트 (옵션)
   aiReport?: string;
   aiReportDate?: string;
+
+  // 04 종합판정 및 비교함 관리
+  addedToCompare?: boolean; // 04 종합판정 후 비교함에 추가 여부
+  evaluatedAt?: string; // 04 종합판정 완료 일시
 }
 
 export interface FinancialMetrics {

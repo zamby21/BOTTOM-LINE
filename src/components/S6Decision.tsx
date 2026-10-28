@@ -16,6 +16,8 @@ import {
   ArrowRight,
   BarChart3,
   Percent,
+  Plus,
+  Check,
 } from 'lucide-react';
 
 interface S6DecisionProps {
@@ -23,6 +25,7 @@ interface S6DecisionProps {
   onGoToReport: () => void;
   onGoToCompare: () => void;
   onGoToRisk: () => void;
+  onToggleCompare?: (candidateId: string) => void;
 }
 
 export const S6Decision: React.FC<S6DecisionProps> = ({
@@ -30,7 +33,9 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   onGoToReport,
   onGoToCompare,
   onGoToRisk,
+  onToggleCompare,
 }) => {
+  const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const metrics: FinancialMetrics = calculateFinancialMetrics(candidate);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
   const { scoreBreakdown, verdict } = calculateDecisionScore(metrics, riskEval);
@@ -44,6 +49,18 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
       });
     }
   }, [verdict.code]);
+
+  const handleCompareClick = () => {
+    if (onToggleCompare) {
+      onToggleCompare(candidate.id);
+      if (!candidate.addedToCompare) {
+        setToastMsg(`'${candidate.name}'이(가) S7 후보지 비교함에 추가되었습니다.`);
+      } else {
+        setToastMsg(`'${candidate.name}'이(가) 비교함에서 제외되었습니다.`);
+      }
+      setTimeout(() => setToastMsg(null), 3000);
+    }
+  };
 
   const waterfallSteps = [
     { label: '월 순매출 (S)', amount: Math.round(metrics.monthlyRevenue), type: 'base', color: 'bg-blue-600' },
@@ -79,7 +96,29 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <button
+            type="button"
+            onClick={handleCompareClick}
+            className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-2xs ${
+              candidate.addedToCompare
+                ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            {candidate.addedToCompare ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-indigo-600" />
+                <span>비교함 등록됨</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                <span>비교함 담기</span>
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={onGoToCompare}
@@ -88,6 +127,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
             <Scale className="w-4 h-4 text-indigo-600" />
             후보지 비교
           </button>
+
           <button
             type="button"
             onClick={onGoToReport}
@@ -99,6 +139,23 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Instant Toast Notification */}
+      {toastMsg && (
+        <div className="bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg flex items-center justify-between gap-3 animate-fade-in border border-slate-700">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span>{toastMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onGoToCompare}
+            className="text-indigo-300 hover:text-white underline text-[11px] font-semibold"
+          >
+            S7 비교함 바로가기 ➔
+          </button>
+        </div>
+      )}
 
       {/* Main Verdict Card with 100-Point Score & Decision Chip */}
       <div className={`p-5 sm:p-7 rounded-3xl border shadow-sm transition-all ${verdict.bgLightClass} ${verdict.borderClass}`}>
@@ -114,6 +171,12 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
               <span className="text-[11px] font-bold text-slate-600 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200 truncate">
                 {candidate.name}
               </span>
+              {candidate.addedToCompare && (
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                  <Scale className="w-3 h-3" />
+                  비교함 등록 매물
+                </span>
+              )}
             </div>
 
             <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug">
@@ -146,6 +209,71 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                 ? '🟡 보통 (조건부)'
                 : '🔴 위험 (보류)'}
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Dedicated 04 Decision Comparison Action Card */}
+      <div className={`p-4 sm:p-5 rounded-2xl border transition-all ${
+        candidate.addedToCompare
+          ? 'bg-gradient-to-r from-indigo-50/90 via-purple-50/70 to-blue-50/80 border-indigo-200 shadow-xs'
+          : 'bg-white border-slate-200 shadow-xs'
+      }`}>
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3.5">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs ${
+                candidate.addedToCompare ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700'
+              }`}>
+                <Scale className="w-4 h-4" />
+              </span>
+              <h4 className="font-bold text-slate-900 text-sm sm:text-base">
+                {candidate.addedToCompare
+                  ? '04 종합판정 결과가 S7 후보지 비교함에 등록되어 있습니다'
+                  : '이 매물의 04 종합판정 결과를 후보지 비교대상으로 추가하시겠습니까?'}
+              </h4>
+            </div>
+            <p className="text-xs text-slate-600 pl-9">
+              {candidate.addedToCompare
+                ? `100점 만점 총점(${scoreBreakdown.totalScore}점), 월 순영업이익(${Math.round(metrics.monthlyOperatingProfit).toLocaleString()}만원), BEP, 6대 규제 점검 결과가 S7 비교 풀에 등록되었습니다.`
+                : '종합 판정 결과가 완료된 매물들을 비교함에 모아서, 다른 후보지들과의 순위 역전 현상 및 최적 매물(BEST CHOICE)을 비교 검증합니다.'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 w-full md:w-auto pl-9 md:pl-0">
+            <button
+              type="button"
+              onClick={handleCompareClick}
+              className={`flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl font-bold text-xs transition-all ${
+                candidate.addedToCompare
+                  ? 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 hover:text-rose-600'
+                  : 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white shadow-sm'
+              }`}
+            >
+              {candidate.addedToCompare ? (
+                <>
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>비교대상에서 제외</span>
+                </>
+              ) : (
+                <>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>04 종합판정 결과 비교대상으로 추가</span>
+                </>
+              )}
+            </button>
+
+            {candidate.addedToCompare && (
+              <button
+                type="button"
+                onClick={onGoToCompare}
+                className="flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm transition-all"
+              >
+                <Scale className="w-3.5 h-3.5" />
+                <span>S7 비교함 가기</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>

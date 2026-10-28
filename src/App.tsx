@@ -107,6 +107,40 @@ export default function App() {
     }
   };
 
+  const handleToggleCompare = (candidateId: string) => {
+    setCandidates((prev) => {
+      const next = prev.map((c) => {
+        if (c.id === candidateId) {
+          const nextAdded = !c.addedToCompare;
+          return {
+            ...c,
+            addedToCompare: nextAdded,
+            evaluatedAt: nextAdded ? new Date().toISOString() : c.evaluatedAt,
+          };
+        }
+        return c;
+      });
+      try {
+        localStorage.setItem('bottomline_candidates', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleAddAllToCompare = () => {
+    setCandidates((prev) => {
+      const next = prev.map((c) => ({
+        ...c,
+        addedToCompare: true,
+        evaluatedAt: c.evaluatedAt || new Date().toISOString(),
+      }));
+      try {
+        localStorage.setItem('bottomline_candidates', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
   const activeCandidate =
     candidates.find((c) => c.id === activeCandidateId) || candidates[0];
 
@@ -187,6 +221,7 @@ export default function App() {
             onGoToReport={() => setCurrentStep('S8_REPORT')}
             onGoToCompare={() => setCurrentStep('S7_COMPARE')}
             onGoToRisk={() => setCurrentStep('S5_RISK')}
+            onToggleCompare={handleToggleCompare}
           />
         )}
 
@@ -200,6 +235,16 @@ export default function App() {
               setCurrentStep('S6_DECISION');
             }}
             onAddNew={handleAddNewCandidate}
+            onToggleCompare={handleToggleCompare}
+            onGoToDecision={(id) => {
+              setActiveCandidateId(id);
+              setCurrentStep('S6_DECISION');
+            }}
+            onGoToReport={(id) => {
+              setActiveCandidateId(id);
+              setCurrentStep('S8_REPORT');
+            }}
+            onAddAllToCompare={handleAddAllToCompare}
           />
         )}
 

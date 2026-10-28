@@ -33,6 +33,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const activeCandidate = candidates.find((c) => c.id === activeCandidateId) || candidates[0];
+  const comparedCount = candidates.filter((c) => c.addedToCompare).length;
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs print:hidden">
@@ -72,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 {candidates.map((c, idx) => (
                   <option key={c.id} value={c.id}>
-                    #{idx + 1}. {c.name}
+                    #{idx + 1}. {c.name} {c.addedToCompare ? '⭐' : ''}
                   </option>
                 ))}
               </select>
@@ -92,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs"
             >
               <Scale className="w-3.5 h-3.5 text-indigo-600" />
-              후보지 비교 ({candidates.length})
+              후보지 비교 ({comparedCount})
             </button>
 
             <button
@@ -122,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="px-2.5 py-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold flex items-center gap-1"
             >
               <Scale className="w-3.5 h-3.5" />
-              <span>비교</span>
+              <span>비교({comparedCount})</span>
             </button>
 
             <button

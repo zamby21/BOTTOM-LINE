@@ -183,6 +183,8 @@ export const INITIAL_PRESET_CANDIDATES: CandidateLocation[] = [
     interiorCost: 3800, // 인테리어 3,800만원
     equipmentCost: 2600, // 에스프레소 머신 등 2,600만원
     depreciationMonths: 60,
+    addedToCompare: true,
+    evaluatedAt: '2026-04-10 09:30',
   },
   {
     id: 'candidate-2-gangnam',
@@ -232,6 +234,8 @@ export const INITIAL_PRESET_CANDIDATES: CandidateLocation[] = [
     interiorCost: 9500, // 인테리어 9,500만원
     equipmentCost: 4800, // 주방 설비 4,800만원
     depreciationMonths: 60,
+    addedToCompare: true,
+    evaluatedAt: '2026-04-10 10:15',
   },
   {
     id: 'candidate-3-hongdae',
@@ -281,5 +285,6 @@ export const INITIAL_PRESET_CANDIDATES: CandidateLocation[] = [
     interiorCost: 4800,
     equipmentCost: 2200,
     depreciationMonths: 60,
+    addedToCompare: false,
   },
 ];
