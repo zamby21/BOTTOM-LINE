@@ -245,6 +245,106 @@ export function simulateRevenueSensitivity(candidate: CandidateLocation): Revenu
   });
 }
 
+export interface CostSensitivityRow {
+  id: string;
+  factor: 'base' | 'rent' | 'labor' | 'both';
+  label: string;
+  deltaPercent: number;
+  costDeltaAmount: number; // 기준 대비 비용 증감액 (+면 비용 증가, -면 비용 절감)
+  monthlyOperatingProfit: number;
+  profitDelta: number; // 기준 대비 영업이익 증감액
+  operatingProfitMargin: number;
+  paybackPeriodMonths: number;
+}
+
+/**
+ * 임대료(월세) · 인건비 ±10% 변동에 따른 영업이익 민감도 분석
+ */
+export function simulateCostSensitivity(
+  candidate: CandidateLocation,
+  stepPercent: number = 10
+): CostSensitivityRow[] {
+  const base = calculateFinancialMetrics(candidate);
+  const up = 1 + stepPercent / 100;
+  const down = 1 - stepPercent / 100;
+
+  const configs: Array<{
+    id: string;
+    factor: CostSensitivityRow['factor'];
+    label: string;
+    deltaPercent: number;
+    override: Partial<CandidateLocation>;
+  }> = [
+    {
+      id: 'rent_down',
+      factor: 'rent',
+      label: `임대료 -${stepPercent}%`,
+      deltaPercent: -stepPercent,
+      override: { monthlyRent: candidate.monthlyRent * down },
+    },
+    {
+      id: 'rent_up',
+      factor: 'rent',
+      label: `임대료 +${stepPercent}%`,
+      deltaPercent: stepPercent,
+      override: { monthlyRent: candidate.monthlyRent * up },
+    },
+    {
+      id: 'labor_down',
+      factor: 'labor',
+      label: `인건비 -${stepPercent}%`,
+      deltaPercent: -stepPercent,
+      override: { fullTimeStaff: candidate.fullTimeStaff * down },
+    },
+    {
+      id: 'labor_up',
+      factor: 'labor',
+      label: `인건비 +${stepPercent}%`,
+      deltaPercent: stepPercent,
+      override: { fullTimeStaff: candidate.fullTimeStaff * up },
+    },
+    {
+      id: 'both_down',
+      factor: 'both',
+      label: `동시 -${stepPercent}%`,
+      deltaPercent: -stepPercent,
+      override: {
+        monthlyRent: candidate.monthlyRent * down,
+        fullTimeStaff: candidate.fullTimeStaff * down,
+      },
+    },
+    {
+      id: 'both_up',
+      factor: 'both',
+      label: `동시 +${stepPercent}%`,
+      deltaPercent: stepPercent,
+      override: {
+        monthlyRent: candidate.monthlyRent * up,
+        fullTimeStaff: candidate.fullTimeStaff * up,
+      },
+    },
+  ];
+
+  return configs.map((cfg) => {
+    const m = calculateFinancialMetrics({
+      ...candidate,
+      ...cfg.override,
+    });
+    const profitDelta = m.monthlyOperatingProfit - base.monthlyOperatingProfit;
+    return {
+      id: cfg.id,
+      factor: cfg.factor,
+      label: cfg.label,
+      deltaPercent: cfg.deltaPercent,
+      costDeltaAmount: -profitDelta,
+      monthlyOperatingProfit: m.monthlyOperatingProfit,
+      profitDelta,
+      operatingProfitMargin: m.operatingProfitMargin,
+      paybackPeriodMonths: m.paybackPeriodMonths,
+    };
+  });
+}
+
 export interface SpecialContractClause {
   id: string;
   priority: '필수' | '권고';
@@ -748,4 +848,187 @@ export function calculateDecisionScore(
   };
 
   return { scoreBreakdown, verdict };
+}
+
+export interface LocationCompetitivenessAxis {
+  key: 'hinterlandPopulation' | 'transitAccess' | 'visibility' | 'commercialVitality' | 'rentEfficiency' | 'regulatorySafety';
+  subject: string;
+  score: number;
+  benchmark: number;
+  editable: boolean;
+  basis: string;
+}
+
+export interface LocationCompetitivenessResult {
+  overallScore: number;
+  axes: LocationCompetitivenessAxis[];
+  hasCustomOverrides: boolean;
+}
+
+/**
+ * 후보지 입지 환경(배후 인구, 대중교통 접근성, 가시성, 상권 활력, 임대 효율, 규제 안전성) 종합 평가
+ */
+export function evaluateLocationCompetitiveness(
+  candidate: CandidateLocation,
+  metrics: FinancialMetrics,
+  riskEval: RiskEvaluation
+): LocationCompetitivenessResult {
+  const addr = (candidate.address || '').trim();
+  const overrides = candidate.locationRatings || {};
+
+  // 1. 배후 인구 (지역 규모 + 용도지역 배후 주거/오피스 밀도 + 거래 규모)
+  let basePopulation =
+    candidate.regionCode === 'seoul'
+      ? 80
+      : candidate.regionCode === 'overcrowded_busan'
+      ? 72
+      : candidate.regionCode === 'metropolitan'
+      ? 66
+      : 56;
+  if (candidate.zoning === '준주거지역' || candidate.zoning === '제3종일반주거지역') {
+    basePopulation += 8;
+  } else if (candidate.zoning === '중심상업지역' || candidate.zoning === '일반상업지역') {
+    basePopulation += 5;
+  } else if (candidate.zoning === '자연녹지지역') {
+    basePopulation -= 16;
+  }
+  const txCount = candidate.openupData?.monthlyTxCount || 0;
+  if (txCount >= 3500) basePopulation += 6;
+  else if (txCount >= 2000) basePopulation += 3;
+  basePopulation = Math.max(30, Math.min(96, basePopulation));
+
+  // 2. 대중교통 접근성 (도심/역세권/대로변 키워드 + 상업지역 등급 + 권역)
+  let baseTransit =
+    candidate.regionCode === 'seoul'
+      ? 78
+      : candidate.regionCode === 'overcrowded_busan'
+      ? 70
+      : candidate.regionCode === 'metropolitan'
+      ? 65
+      : 54;
+  if (
+    addr.includes('역') ||
+    addr.includes('테헤란로') ||
+    addr.includes('강남') ||
+    addr.includes('홍대') ||
+    addr.includes('성수') ||
+    addr.includes('연무장') ||
+    addr.includes('어울마당') ||
+    addr.includes('중앙로')
+  ) {
+    baseTransit += 12;
+  } else if (addr.includes('대로') || addr.includes('로 ')) {
+    baseTransit += 5;
+  }
+  if (candidate.zoning === '중심상업지역' || candidate.zoning === '일반상업지역') {
+    baseTransit += 6;
+  }
+  baseTransit = Math.max(30, Math.min(98, baseTransit));
+
+  // 3. 점포 가시성·층수 (1층 전면 노출 vs 상층/지하)
+  let baseVisibility = 58;
+  if (candidate.floor === 1) baseVisibility = 88;
+  else if (candidate.floor === 2) baseVisibility = 64;
+  else if (candidate.floor < 0) baseVisibility = 44;
+  else if (candidate.floor >= 3) baseVisibility = 52;
+  if (candidate.areaSqm >= 100 && candidate.floor <= 2) baseVisibility += 4;
+  baseVisibility = Math.max(25, Math.min(96, baseVisibility));
+
+  // 4. 상권 집객력·활력 (추정 월매출 규모 + 상업용도)
+  let baseVitality = 55;
+  if (candidate.grossRevenue >= 6000) baseVitality = 90;
+  else if (candidate.grossRevenue >= 3500) baseVitality = 80;
+  else if (candidate.grossRevenue >= 2000) baseVitality = 68;
+  else baseVitality = 52;
+  if (candidate.zoning.includes('상업지역')) baseVitality += 5;
+  baseVitality = Math.max(30, Math.min(96, baseVitality));
+
+  // 5. 임대 효율성 (매출 대비 임대료+관리비 부담률)
+  const burden = metrics.rentBurdenRate;
+  let rentEfficiency = 50;
+  if (burden <= 0.08) rentEfficiency = 95;
+  else if (burden <= 0.12) rentEfficiency = 82;
+  else if (burden <= 0.16) rentEfficiency = 64;
+  else if (burden <= 0.22) rentEfficiency = 44;
+  else rentEfficiency = 28;
+
+  // 6. 규제·입지 안전성 (6대 법률/행정 리스크 반영)
+  let regulatorySafety = Math.max(20, 100 - riskEval.totalPenalty * 5);
+  if (riskEval.hasBlockingRisk) {
+    regulatorySafety = Math.min(regulatorySafety, 25);
+  }
+
+  const populationScore = overrides.hinterlandPopulation ?? basePopulation;
+  const transitScore = overrides.transitAccess ?? baseTransit;
+  const visibilityScore = overrides.visibility ?? baseVisibility;
+  const vitalityScore = overrides.commercialVitality ?? baseVitality;
+
+  const axes: LocationCompetitivenessAxis[] = [
+    {
+      key: 'hinterlandPopulation',
+      subject: '배후 인구',
+      score: populationScore,
+      benchmark: 70,
+      editable: true,
+      basis: `${candidate.zoning} 배후 수요 기반`,
+    },
+    {
+      key: 'transitAccess',
+      subject: '대중교통',
+      score: transitScore,
+      benchmark: 70,
+      editable: true,
+      basis: addr.includes('역') || addr.includes('로') ? '주요 간선·역세권 인접' : '권역 평균 접근성 기준',
+    },
+    {
+      key: 'visibility',
+      subject: '가시성·층수',
+      score: visibilityScore,
+      benchmark: 70,
+      editable: true,
+      basis: `${candidate.floor < 0 ? `지하 ${Math.abs(candidate.floor)}층` : `지상 ${candidate.floor}층`} (${candidate.areaSqm}㎡)`,
+    },
+    {
+      key: 'commercialVitality',
+      subject: '상권 활력',
+      score: vitalityScore,
+      benchmark: 70,
+      editable: true,
+      basis: `추정 매출 ${candidate.grossRevenue.toLocaleString()}만/월 규모`,
+    },
+    {
+      key: 'rentEfficiency',
+      subject: '임대 효율',
+      score: rentEfficiency,
+      benchmark: 70,
+      editable: false,
+      basis: `임대부담률 ${(burden * 100).toFixed(1)}%`,
+    },
+    {
+      key: 'regulatorySafety',
+      subject: '규제 안전',
+      score: regulatorySafety,
+      benchmark: 70,
+      editable: false,
+      basis: riskEval.hasBlockingRisk
+        ? '차단 규제 발생'
+        : riskEval.hasConditionalRisk
+        ? '조건부 인허가 주의'
+        : '6대 규제 통과',
+    },
+  ];
+
+  const overallScore = Math.round(axes.reduce((sum, a) => sum + a.score, 0) / axes.length);
+  const hasCustomOverrides = Boolean(
+    overrides.hinterlandPopulation !== undefined ||
+      overrides.transitAccess !== undefined ||
+      overrides.visibility !== undefined ||
+      overrides.commercialVitality !== undefined
+  );
+
+  return {
+    overallScore,
+    axes,
+    hasCustomOverrides,
+  };
 }

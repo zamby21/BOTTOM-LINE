@@ -272,6 +272,278 @@ app.post('/api/gemini/market-trends', async (req: Request, res: Response) => {
   }
 });
 
+function parseJibunCodes(bcode?: string, jibunAddress?: string, fallbackAddress?: string) {
+  const cleanBcode = (bcode || '').replace(/\D/g, '');
+  const sigunguCd = cleanBcode.length >= 5 ? cleanBcode.slice(0, 5) : '';
+  const bjdongCd = cleanBcode.length >= 10 ? cleanBcode.slice(5, 10) : '';
+
+  const addrText = (jibunAddress || fallbackAddress || '').trim();
+  const match = addrText.match(/(산\s*)?(\d{1,4})(?:-(\d{1,4}))?\s*(?:\(|$)/);
+  if (!sigunguCd || !bjdongCd || !match) {
+    return null;
+  }
+
+  const platGbCd = match[1] ? '1' : '0';
+  const bun = match[2].padStart(4, '0');
+  const ji = (match[3] || '0').padStart(4, '0');
+  return { sigunguCd, bjdongCd, platGbCd, bun, ji };
+}
+
+function mapBuildingUseFromPurpose(mainPurps?: string, etcPurps?: string): string {
+  const combined = `${mainPurps || ''} ${etcPurps || ''}`;
+  if (combined.includes('휴게음식점')) return '휴게음식점';
+  if (combined.includes('일반음식점')) return '일반음식점';
+  if (combined.includes('위락')) return '위락시설';
+  if (combined.includes('판매')) return '판매시설';
+  if (combined.includes('업무') || combined.includes('오피스텔')) return '업무시설';
+  if (combined.includes('제2종근린생활') || combined.includes('2종근린')) return '제2종근린생활시설';
+  if (combined.includes('제1종근린생활') || combined.includes('1종근린') || combined.includes('소매점')) {
+    return '제1종근린생활시설';
+  }
+  return '기타';
+}
+
+function parseFloorNumber(flrNo: unknown, flrGbCdNm?: string, flrNoNm?: string): number {
+  const rawNum = Number(flrNo);
+  const label = `${flrGbCdNm || ''} ${flrNoNm || ''}`;
+  if (!Number.isNaN(rawNum) && rawNum !== 0) {
+    if (label.includes('지하') || label.includes('B')) {
+      return -Math.abs(rawNum);
+    }
+    return rawNum;
+  }
+  const match = String(flrNoNm || '').match(/\d+/);
+  if (match) {
+    const n = parseInt(match[0], 10);
+    return label.includes('지하') || label.includes('B') ? -n : n;
+  }
+  return 1;
+}
+
+function normalizeDataGoKrItems(json: any): any[] {
+  const item = json?.response?.body?.items?.item;
+  if (!item) return [];
+  return Array.isArray(item) ? item : [item];
+}
+
+// Endpoint: Building Register Title & Units (호실) lookup via MOLIT BldRgstHubService
+app.post('/api/building-register/units', async (req: Request, res: Response) => {
+  try {
+    const { address, jibunAddress, bcode } = req.body || {};
+
+    let parcel = parseJibunCodes(bcode, jibunAddress, address);
+
+    // Optional fallback: resolve PNU from road/jibun address via MOIS Juso API if JUSO_API_KEY is present
+    if (!parcel && address && process.env.JUSO_API_KEY) {
+      const jusoParams = new URLSearchParams({
+        confmKey: process.env.JUSO_API_KEY,
+        currentPage: '1',
+        countPerPage: '1',
+        keyword: String(address).split('(')[0].trim(),
+        resultType: 'json',
+      });
+      const jusoRes = await fetch(`https://business.juso.go.kr/addrlink/addrLinkApi.do?${jusoParams.toString()}`);
+      if (jusoRes.ok) {
+        const jusoJson: any = await jusoRes.json();
+        const first = jusoJson?.results?.juso?.[0];
+        if (first?.admCd && first?.lnbrMnnm) {
+          parcel = {
+            sigunguCd: String(first.admCd).slice(0, 5),
+            bjdongCd: String(first.admCd).slice(5, 10),
+            platGbCd: first.mtYn === '1' ? '1' : '0',
+            bun: String(first.lnbrMnnm).padStart(4, '0'),
+            ji: String(first.lnbrSlno || '0').padStart(4, '0'),
+          };
+        }
+      }
+    }
+
+    if (!parcel) {
+      res.json({
+        success: false,
+        code: 'PARCEL_CODE_REQUIRED',
+        message: '정확한 필지 코드(법정동·지번) 확보를 위해 [주소 검색 (우편번호)] 버튼으로 주소를 선택해주세요.',
+      });
+      return;
+    }
+
+    const apiKey = process.env.DATA_GO_KR_API_KEY;
+    if (!apiKey || !apiKey.trim()) {
+      res.json({
+        success: false,
+        code: 'API_KEY_MISSING',
+        parcel,
+        message: '서버에 공공데이터포털 건축물대장 인증키(DATA_GO_KR_API_KEY)가 설정되어 있지 않습니다. 정부24·세움터에서 확인한 호실을 아래에서 직접 등록해 선택할 수 있습니다.',
+      });
+      return;
+    }
+
+    const encodedKey = apiKey.includes('%') ? apiKey.trim() : encodeURIComponent(apiKey.trim());
+    const buildQuery = (rows: number) =>
+      `serviceKey=${encodedKey}&sigunguCd=${parcel!.sigunguCd}&bjdongCd=${parcel!.bjdongCd}&platGbCd=${parcel!.platGbCd}&bun=${parcel!.bun}&ji=${parcel!.ji}&numOfRows=${rows}&pageNo=1&_type=json`;
+
+    const baseUrl = 'https://apis.data.go.kr/1613000/BldRgstHubService';
+    const [titleRes, exposRes, floorRes] = await Promise.all([
+      fetch(`${baseUrl}/getBrTitleInfo?${buildQuery(20)}`),
+      fetch(`${baseUrl}/getBrExposPubuseAreaInfo?${buildQuery(300)}`),
+      fetch(`${baseUrl}/getBrFlrOulnInfo?${buildQuery(100)}`),
+    ]);
+
+    if (!titleRes.ok || !exposRes.ok) {
+      res.status(502).json({
+        success: false,
+        code: 'UPSTREAM_ERROR',
+        message: '국토교통부 건축물대장 API 응답 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+      });
+      return;
+    }
+
+    const [titleJson, exposJson, floorJson] = await Promise.all([
+      titleRes.json(),
+      exposRes.json(),
+      floorRes.ok ? floorRes.json() : Promise.resolve(null),
+    ]);
+
+    const titles = normalizeDataGoKrItems(titleJson);
+    const exposItems = normalizeDataGoKrItems(exposJson);
+    const floorItems = floorJson ? normalizeDataGoKrItems(floorJson) : [];
+
+    const primaryTitle = titles[0] || null;
+    const buildingTitle = primaryTitle
+      ? {
+          buildingName: String(primaryTitle.bldNm || '').trim(),
+          regstrKind: String(primaryTitle.regstrKindCdNm || '').trim(),
+          mainPurpose: String(primaryTitle.mainPurpsCdNm || '').trim(),
+          etcPurpose: String(primaryTitle.etcPurps || '').trim(),
+          groundFloors: Number(primaryTitle.grndFlrCnt || 0),
+          undergroundFloors: Number(primaryTitle.ugrndFlrCnt || 0),
+          totalAreaSqm: Number(primaryTitle.totArea || 0),
+          approvalDate: String(primaryTitle.useAprDay || '').trim(),
+          hasViolation: titles.some(
+            (t) =>
+              t.vltnBldYn === '1' ||
+              t.vltnBldYn === 'Y' ||
+              String(t.vltnYn || '').toUpperCase() === 'Y' ||
+              String(t.etcStrct || '').includes('위반')
+          ),
+        }
+      : null;
+
+    // Aggregate exclusive & common areas per 호실 (dongNm + hoNm + flrNo)
+    const unitMap = new Map<
+      string,
+      {
+        id: string;
+        kind: 'unit';
+        dongNm: string;
+        hoNm: string;
+        floorNumber: number;
+        floorLabel: string;
+        exclusiveAreaSqm: number;
+        commonAreaSqm: number;
+        mainPurpose: string;
+        etcPurpose: string;
+        mappedBuildingUse: string;
+        source: 'api';
+      }
+    >();
+
+    for (const row of exposItems) {
+      const dongNm = String(row.dongNm || '').trim();
+      const hoNm = String(row.hoNm || '').trim();
+      if (!hoNm) continue;
+
+      const floorNumber = parseFloorNumber(row.flrNo, row.flrGbCdNm, row.flrNoNm);
+      const floorLabel =
+        String(row.flrNoNm || '').trim() ||
+        (floorNumber < 0 ? `지하 ${Math.abs(floorNumber)}층` : `${floorNumber}층`);
+      const key = `${dongNm}::${floorNumber}::${hoNm}`;
+      const areaVal = Number(row.area || 0);
+      const isExclusive = String(row.exposPubuseGbCdNm || '').includes('전유') || row.exposPubuseGbCd === '1';
+
+      const existing = unitMap.get(key);
+      if (!existing) {
+        const mainPurpose = String(row.mainPurpsCdNm || '').trim();
+        const etcPurpose = String(row.etcPurps || '').trim();
+        unitMap.set(key, {
+          id: `api-unit-${key}`,
+          kind: 'unit',
+          dongNm,
+          hoNm,
+          floorNumber,
+          floorLabel,
+          exclusiveAreaSqm: isExclusive ? areaVal : 0,
+          commonAreaSqm: isExclusive ? 0 : areaVal,
+          mainPurpose,
+          etcPurpose,
+          mappedBuildingUse: mapBuildingUseFromPurpose(mainPurpose, etcPurpose),
+          source: 'api',
+        });
+      } else {
+        if (isExclusive) {
+          existing.exclusiveAreaSqm = Math.round((existing.exclusiveAreaSqm + areaVal) * 100) / 100;
+          if (!existing.mainPurpose && row.mainPurpsCdNm) {
+            existing.mainPurpose = String(row.mainPurpsCdNm).trim();
+            existing.etcPurpose = String(row.etcPurps || '').trim();
+            existing.mappedBuildingUse = mapBuildingUseFromPurpose(existing.mainPurpose, existing.etcPurpose);
+          }
+        } else {
+          existing.commonAreaSqm = Math.round((existing.commonAreaSqm + areaVal) * 100) / 100;
+        }
+      }
+    }
+
+    let units: any[] = Array.from(unitMap.values()).filter((u) => u.exclusiveAreaSqm > 0);
+
+    // Fallback to floor summary (일반건축물 층별개요) if no strata 호실 exists
+    if (units.length === 0 && floorItems.length > 0) {
+      units = floorItems
+        .map((row, idx) => {
+          const floorNumber = parseFloorNumber(row.flrNo, row.flrGbCdNm, row.flrNoNm);
+          const floorLabel =
+            String(row.flrNoNm || '').trim() ||
+            (floorNumber < 0 ? `지하 ${Math.abs(floorNumber)}층` : `${floorNumber}층`);
+          const mainPurpose = String(row.mainPurpsCdNm || '').trim();
+          const etcPurpose = String(row.etcPurps || '').trim();
+          return {
+            id: `api-floor-${floorNumber}-${idx}`,
+            kind: 'floor',
+            dongNm: String(row.dongNm || '').trim(),
+            hoNm: `${floorLabel} 전체`,
+            floorNumber,
+            floorLabel,
+            exclusiveAreaSqm: Math.round(Number(row.area || 0) * 100) / 100,
+            commonAreaSqm: 0,
+            mainPurpose,
+            etcPurpose,
+            mappedBuildingUse: mapBuildingUseFromPurpose(mainPurpose, etcPurpose),
+            source: 'api',
+          };
+        })
+        .filter((u) => u.exclusiveAreaSqm > 0);
+    }
+
+    units.sort((a, b) => {
+      if (a.floorNumber !== b.floorNumber) return a.floorNumber - b.floorNumber;
+      return String(a.hoNm).localeCompare(String(b.hoNm), 'ko', { numeric: true });
+    });
+
+    res.json({
+      success: true,
+      parcel,
+      buildingTitle,
+      units,
+    });
+  } catch (error: any) {
+    console.error('Building register lookup error:', error);
+    res.status(500).json({
+      success: false,
+      code: 'SERVER_ERROR',
+      message: error?.message || '건축물대장 호실 조회 중 오류가 발생했습니다.',
+    });
+  }
+});
+
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 

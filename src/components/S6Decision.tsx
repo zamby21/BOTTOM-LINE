@@ -19,13 +19,38 @@ import {
   Check,
   BookmarkPlus,
   ClipboardCheck,
+  PieChart as PieChartIcon,
+  SlidersHorizontal,
+  MapPin,
+  RotateCcw,
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ReferenceLine,
+  Legend,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+} from 'recharts';
 import {
   calculateFinancialMetrics,
   evaluateRiskRules,
   calculateDecisionScore,
   getCandidateDueDiligence,
   simulateRevenueSensitivity,
+  simulateCostSensitivity,
+  evaluateLocationCompetitiveness,
 } from '../utils/engine';
 
 interface S6DecisionProps {
@@ -35,6 +60,7 @@ interface S6DecisionProps {
   onGoToRisk: () => void;
   onToggleCompare?: (candidateId: string) => void;
   onSaveSnapshot?: () => void;
+  onUpdateCandidate?: (updated: CandidateLocation) => void;
 }
 
 export const S6Decision: React.FC<S6DecisionProps> = ({
@@ -44,6 +70,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   onGoToRisk,
   onToggleCompare,
   onSaveSnapshot,
+  onUpdateCandidate,
 }) => {
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const metrics: FinancialMetrics = calculateFinancialMetrics(candidate);
@@ -53,6 +80,58 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   const unverifiedCount = dueDiligenceItems.filter((d) => d.status === 'unverified').length;
   const criticalCount = dueDiligenceItems.filter((d) => d.status === 'critical').length;
   const sensitivityRows = simulateRevenueSensitivity(candidate);
+  const costSensitivityRows = simulateCostSensitivity(candidate, 10);
+  const locationCompetitiveness = evaluateLocationCompetitiveness(candidate, metrics, riskEval);
+
+  const handleLocationRatingChange = (
+    key: 'hinterlandPopulation' | 'transitAccess' | 'visibility' | 'commercialVitality',
+    val: number
+  ) => {
+    if (!onUpdateCandidate) return;
+    onUpdateCandidate({
+      ...candidate,
+      locationRatings: {
+        ...(candidate.locationRatings || {}),
+        [key]: val,
+      },
+    });
+  };
+
+  const handleResetLocationRatings = () => {
+    if (!onUpdateCandidate) return;
+    onUpdateCandidate({
+      ...candidate,
+      locationRatings: undefined,
+    });
+  };
+
+  const rentDown = costSensitivityRows.find((r) => r.id === 'rent_down');
+  const rentUp = costSensitivityRows.find((r) => r.id === 'rent_up');
+  const laborDown = costSensitivityRows.find((r) => r.id === 'labor_down');
+  const laborUp = costSensitivityRows.find((r) => r.id === 'labor_up');
+  const bothDown = costSensitivityRows.find((r) => r.id === 'both_down');
+  const bothUp = costSensitivityRows.find((r) => r.id === 'both_up');
+
+  const costBarChartData = [
+    {
+      name: '임대료(월세)',
+      '비용 -10%': Math.round(rentDown?.monthlyOperatingProfit ?? metrics.monthlyOperatingProfit),
+      '현재 기준': Math.round(metrics.monthlyOperatingProfit),
+      '비용 +10%': Math.round(rentUp?.monthlyOperatingProfit ?? metrics.monthlyOperatingProfit),
+    },
+    {
+      name: '직원 인건비',
+      '비용 -10%': Math.round(laborDown?.monthlyOperatingProfit ?? metrics.monthlyOperatingProfit),
+      '현재 기준': Math.round(metrics.monthlyOperatingProfit),
+      '비용 +10%': Math.round(laborUp?.monthlyOperatingProfit ?? metrics.monthlyOperatingProfit),
+    },
+    {
+      name: '임대+인건비 동시',
+      '비용 -10%': Math.round(bothDown?.monthlyOperatingProfit ?? metrics.monthlyOperatingProfit),
+      '현재 기준': Math.round(metrics.monthlyOperatingProfit),
+      '비용 +10%': Math.round(bothUp?.monthlyOperatingProfit ?? metrics.monthlyOperatingProfit),
+    },
+  ];
 
   useEffect(() => {
     if (verdict.code === 'GO') {
@@ -103,6 +182,45 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   ];
 
   const maxWaterfallVal = Math.max(metrics.monthlyRevenue, 1);
+
+  const roundedRevenue = Math.max(0, Math.round(metrics.monthlyRevenue));
+  const roundedVariableCost = Math.max(0, Math.round(metrics.totalVariableCost));
+  const roundedFixedCost = Math.max(0, Math.round(metrics.totalFixedCost));
+  const roundedProfit = Math.round(metrics.monthlyOperatingProfit);
+  const isOperatingProfit = roundedProfit >= 0;
+
+  const donutData = [
+    {
+      name: '변동비',
+      detail: '원가·카드·배달·기타변동',
+      value: roundedVariableCost,
+      ratio: metrics.monthlyRevenue > 0 ? (metrics.totalVariableCost / metrics.monthlyRevenue) * 100 : 0,
+      color: '#f59e0b',
+      dotClass: 'bg-amber-500',
+    },
+    {
+      name: '고정비',
+      detail: '인건·임대·공과금·상각',
+      value: roundedFixedCost,
+      ratio: metrics.monthlyRevenue > 0 ? (metrics.totalFixedCost / metrics.monthlyRevenue) * 100 : 0,
+      color: '#6366f1',
+      dotClass: 'bg-indigo-500',
+    },
+    ...(isOperatingProfit
+      ? [
+          {
+            name: '영업이익',
+            detail: '매출에서 모든 비용 차감',
+            value: roundedProfit,
+            ratio: metrics.monthlyRevenue > 0 ? (metrics.monthlyOperatingProfit / metrics.monthlyRevenue) * 100 : 0,
+            color: '#10b981',
+            dotClass: 'bg-emerald-500',
+          },
+        ]
+      : []),
+  ];
+
+  const activeDonutSlices = donutData.filter((d) => d.value > 0);
 
   return (
     <div className="max-w-5xl mx-auto space-y-5 pb-24">
@@ -394,44 +512,171 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
         </div>
       </div>
 
-      {/* Revenue-to-Profit Waterfall Chart */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-2.5">
-          <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
-            <BarChart3 className="w-4 h-4 text-blue-600" />
-            매출 ➔ 영업이익 폭포 차트 (Waterfall)
-          </h3>
-          <span className="text-[10px] text-slate-500">단위: 만원</span>
-        </div>
+      {/* Revenue Structure Donut Chart & Waterfall Breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        {/* Recharts Donut Chart: Revenue = Variable + Fixed + Operating Profit */}
+        <div className="lg:col-span-5 bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
+              <PieChartIcon className="w-4 h-4 text-indigo-600" />
+              매출·비용·이익 구성
+            </h3>
+            <span className="text-[11px] text-slate-500 tabular-nums">
+              월 순매출 기준
+            </span>
+          </div>
 
-        <div className="space-y-2.5 pt-1">
-          {waterfallSteps.map((step, idx) => {
-            const isSub = step.type === 'sub';
-            const isResult = step.type === 'result';
-            const absVal = Math.abs(step.amount);
-            const barWidthPercent = Math.min(100, (absVal / maxWaterfallVal) * 100);
+          {activeDonutSlices.length > 0 ? (
+            <div className="relative w-full h-52 sm:h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={activeDonutSlices}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={56}
+                    outerRadius={82}
+                    paddingAngle={2}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  >
+                    {activeDonutSlices.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload || payload.length === 0) return null;
+                      const item = payload[0]?.payload as (typeof donutData)[number] | undefined;
+                      if (!item) return null;
+                      return (
+                        <div className="bg-slate-900 text-white px-3 py-2 rounded-xl shadow-lg border border-slate-700 text-xs tabular-nums">
+                          <div className="font-bold flex items-center gap-1.5">
+                            <span
+                              className="w-2 h-2 rounded-full inline-block"
+                              style={{ backgroundColor: item.color }}
+                            />
+                            <span>{item.name}</span>
+                          </div>
+                          <div className="text-slate-200 font-mono font-bold mt-0.5">
+                            {item.value.toLocaleString()}만원 ({item.ratio.toFixed(1)}%)
+                          </div>
+                          <div className="text-[10px] text-slate-400 mt-0.5">{item.detail}</div>
+                        </div>
+                      );
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
 
-            return (
-              <div key={idx} className="space-y-1">
-                <div className="flex justify-between text-xs font-semibold">
-                  <span className={`${isResult ? 'font-bold text-slate-900 text-xs sm:text-sm' : 'text-slate-600 text-[11px] sm:text-xs'}`}>
-                    {step.label}
-                  </span>
-                  <span className={`font-mono text-xs ${
-                    isSub ? 'text-rose-600' : isResult ? (step.amount >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold') : 'text-slate-900 font-bold'
-                  }`}>
-                    {step.amount > 0 ? `+${step.amount.toLocaleString()}` : step.amount.toLocaleString()} 만원
+              {/* Center Metric inside Donut Hole */}
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4 tabular-nums">
+                <span className="text-[10px] font-semibold text-slate-400">월 순매출</span>
+                <strong className="text-lg sm:text-xl font-black text-slate-900 leading-tight">
+                  {roundedRevenue.toLocaleString()}만
+                </strong>
+                <span
+                  className={`text-[11px] font-bold mt-0.5 ${
+                    isOperatingProfit ? 'text-emerald-600' : 'text-rose-600'
+                  }`}
+                >
+                  {isOperatingProfit
+                    ? `이익 ${(metrics.operatingProfitMargin * 100).toFixed(1)}%`
+                    : `적자 ${Math.abs(roundedProfit).toLocaleString()}만`}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="h-52 flex items-center justify-center text-xs text-slate-400">
+              매출 및 비용 데이터를 입력하면 구성 도넛 차트가 표시됩니다.
+            </div>
+          )}
+
+          {/* Clean Tabular Breakdown Legend (매출, 변동비, 고정비, 영업이익) */}
+          <div className="divide-y divide-slate-100 border-t border-slate-100 text-xs tabular-nums">
+            <div className="py-2 flex items-center justify-between">
+              <span className="font-bold text-slate-700">월 순매출 (공급가액)</span>
+              <span className="font-mono font-black text-slate-900">
+                {roundedRevenue.toLocaleString()}만원 (100%)
+              </span>
+            </div>
+
+            {donutData.map((item) => (
+              <div key={item.name} className="py-2 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2.5 h-2.5 rounded-sm flex-shrink-0 ${item.dotClass}`} />
+                  <span className="font-semibold text-slate-700">{item.name}</span>
+                  <span className="text-[10px] text-slate-400 truncate hidden sm:inline">
+                    {item.detail}
                   </span>
                 </div>
-                <div className="w-full bg-slate-100 h-2.5 sm:h-3 rounded-full overflow-hidden flex">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${step.color}`}
-                    style={{ width: `${Math.max(3, barWidthPercent)}%` }}
-                  />
+                <div className="font-mono font-bold text-slate-900 flex-shrink-0">
+                  {item.value.toLocaleString()}만
+                  <span className="text-slate-400 font-normal ml-1.5">
+                    ({item.ratio.toFixed(1)}%)
+                  </span>
                 </div>
               </div>
-            );
-          })}
+            ))}
+
+            {!isOperatingProfit && (
+              <div className="py-2 flex items-center justify-between gap-2 text-rose-700">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0 bg-rose-600" />
+                  <span className="font-bold">영업손실 (매출 초과 비용)</span>
+                </div>
+                <div className="font-mono font-black flex-shrink-0">
+                  {roundedProfit.toLocaleString()}만
+                  <span className="font-semibold ml-1.5">
+                    ({(metrics.operatingProfitMargin * 100).toFixed(1)}%)
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Revenue-to-Profit Waterfall Chart */}
+        <div className="lg:col-span-7 bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-100 pb-2.5">
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
+              <BarChart3 className="w-4 h-4 text-blue-600" />
+              매출 ➔ 영업이익 폭포 차트 (Waterfall)
+            </h3>
+            <span className="text-[11px] text-slate-500">단위: 만원</span>
+          </div>
+
+          <div className="space-y-2.5 pt-1 tabular-nums">
+            {waterfallSteps.map((step, idx) => {
+              const isSub = step.type === 'sub';
+              const isResult = step.type === 'result';
+              const absVal = Math.abs(step.amount);
+              const barWidthPercent = Math.min(100, (absVal / maxWaterfallVal) * 100);
+
+              return (
+                <div key={idx} className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold">
+                    <span className={`${isResult ? 'font-bold text-slate-900 text-xs sm:text-sm' : 'text-slate-600 text-[11px] sm:text-xs'}`}>
+                      {step.label}
+                    </span>
+                    <span className={`font-mono text-xs ${
+                      isSub ? 'text-rose-600' : isResult ? (step.amount >= 0 ? 'text-emerald-700 font-bold' : 'text-rose-600 font-bold') : 'text-slate-900 font-bold'
+                    }`}>
+                      {step.amount > 0 ? `+${step.amount.toLocaleString()}` : step.amount.toLocaleString()} 만원
+                    </span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 sm:h-3 rounded-full overflow-hidden flex">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${step.color}`}
+                      style={{ width: `${Math.max(3, barWidthPercent)}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -496,6 +741,127 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
           </div>
         </div>
       </div>
+      {/* Cost Sensitivity Analysis: ±10% Rent & Labor Impact on Operating Profit */}
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
+              <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+              비용 민감도 분석 (임대료 · 인건비 ±10% 변동 시 영업이익)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              임대료(월 {candidate.monthlyRent.toLocaleString()}만) 또는 직원 인건비(월 {Math.round(metrics.laborCost).toLocaleString()}만)가 10% 오르내릴 때의 손익 변화입니다.
+            </p>
+          </div>
+          <span className="text-[11px] text-slate-500 tabular-nums flex-shrink-0">
+            기준 영업이익: <strong className={metrics.monthlyOperatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+              {Math.round(metrics.monthlyOperatingProfit).toLocaleString()}만원
+            </strong>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+          {/* Grouped Bar Chart comparing -10% / Baseline / +10% */}
+          <div className="lg:col-span-6 h-60 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={costBarChartData} margin={{ top: 10, right: 12, left: -8, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(val: number) => `${val}만`}
+                />
+                <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
+                <Tooltip
+                  cursor={{ fill: 'rgba(241, 245, 249, 0.7)' }}
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || payload.length === 0) return null;
+                    return (
+                      <div className="bg-slate-900 text-white px-3 py-2 rounded-xl shadow-lg border border-slate-700 text-xs tabular-nums space-y-1">
+                        <div className="font-bold text-slate-200 border-b border-slate-700 pb-1">
+                          {label} ±10% 변동
+                        </div>
+                        {payload.map((entry) => (
+                          <div key={String(entry.name)} className="flex items-center justify-between gap-4">
+                            <span className="flex items-center gap-1.5 text-slate-300">
+                              <span
+                                className="w-2 h-2 rounded-xs inline-block"
+                                style={{ backgroundColor: String(entry.color) }}
+                              />
+                              {entry.name}
+                            </span>
+                            <span className="font-mono font-bold text-white">
+                              {Number(entry.value).toLocaleString()}만원
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '6px' }} />
+                <Bar dataKey="비용 -10%" fill="#10b981" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="현재 기준" fill="#64748b" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="비용 +10%" fill="#f43f5e" radius={[4, 4, 0, 0]} maxBarSize={28} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Detailed Sensitivity Table */}
+          <div className="lg:col-span-6 overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs tabular-nums">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500 font-bold text-[11px]">
+                  <th className="py-2 pr-2">시나리오</th>
+                  <th className="py-2 px-2 text-right">비용 변화</th>
+                  <th className="py-2 px-2 text-right">예상 영업이익</th>
+                  <th className="py-2 px-2 text-right">기준 대비</th>
+                  <th className="py-2 pl-2 text-right">회수기간</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {costSensitivityRows.map((row) => {
+                  const isBetter = row.profitDelta > 0;
+                  const roundedProfit = Math.round(row.monthlyOperatingProfit);
+                  const roundedDelta = Math.round(row.profitDelta);
+                  const roundedCostDelta = Math.round(row.costDeltaAmount);
+                  return (
+                    <tr key={row.id} className="hover:bg-slate-50/70">
+                      <td className="py-2.5 pr-2 font-bold text-slate-800 whitespace-nowrap">
+                        {row.label}
+                      </td>
+                      <td className="py-2.5 px-2 text-right font-mono text-slate-500 whitespace-nowrap">
+                        {roundedCostDelta > 0 ? `+${roundedCostDelta.toLocaleString()}` : roundedCostDelta.toLocaleString()}만
+                      </td>
+                      <td className={`py-2.5 px-2 text-right font-mono font-black whitespace-nowrap ${
+                        roundedProfit >= 0 ? 'text-slate-900' : 'text-rose-600'
+                      }`}>
+                        {roundedProfit.toLocaleString()}만원
+                      </td>
+                      <td className={`py-2.5 px-2 text-right font-mono font-bold whitespace-nowrap ${
+                        isBetter ? 'text-emerald-700' : 'text-rose-600'
+                      }`}>
+                        {roundedDelta > 0 ? `+${roundedDelta.toLocaleString()}` : roundedDelta.toLocaleString()}만
+                      </td>
+                      <td className="py-2.5 pl-2 text-right text-slate-600 whitespace-nowrap">
+                        {row.paybackPeriodMonths === 999 ? '불가' : `${row.paybackPeriodMonths.toFixed(1)}개월`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       {/* Due Diligence & Revenue Stress Check Summary (PropScope Enhancement) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className={`p-4 sm:p-5 rounded-2xl border space-y-2.5 ${
@@ -548,6 +914,165 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Location Competitiveness 6-Axis Radar Chart */}
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
+              <MapPin className="w-4 h-4 text-indigo-600" />
+              입지 경쟁력 종합 프로파일 (6대 입지 환경 레이더)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              배후 인구, 대중교통 접근성, 점포 가시성, 상권 활력과 재무·규제 지표를 종합한 입지 균형도입니다.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 flex-shrink-0 tabular-nums">
+            {locationCompetitiveness.hasCustomOverrides && onUpdateCandidate && (
+              <button
+                type="button"
+                onClick={handleResetLocationRatings}
+                className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800 underline cursor-pointer"
+              >
+                <RotateCcw className="w-3 h-3" />
+                자동 산출값 복원
+              </button>
+            )}
+            <div className="text-right">
+              <span className="text-[11px] text-slate-400 block font-semibold">입지 경쟁력 지수</span>
+              <strong className={`text-lg font-black ${
+                locationCompetitiveness.overallScore >= 75
+                  ? 'text-emerald-700'
+                  : locationCompetitiveness.overallScore >= 60
+                  ? 'text-indigo-700'
+                  : 'text-amber-700'
+              }`}>
+                {locationCompetitiveness.overallScore}
+                <span className="text-xs font-normal text-slate-400"> / 100</span>
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+          {/* Recharts RadarChart */}
+          <div className="lg:col-span-6 h-72 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart
+                cx="50%"
+                cy="50%"
+                outerRadius="74%"
+                data={locationCompetitiveness.axes}
+              >
+                <PolarGrid stroke="#e2e8f0" />
+                <PolarAngleAxis
+                  dataKey="subject"
+                  tick={{ fill: '#334155', fontSize: 11, fontWeight: 700 }}
+                />
+                <PolarRadiusAxis
+                  angle={90}
+                  domain={[0, 100]}
+                  tickCount={5}
+                  tick={{ fill: '#94a3b8', fontSize: 10 }}
+                  axisLine={false}
+                />
+                <Radar
+                  name="적정 기준 (70점)"
+                  dataKey="benchmark"
+                  stroke="#94a3b8"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  fill="transparent"
+                />
+                <Radar
+                  name={candidate.name}
+                  dataKey="score"
+                  stroke="#4f46e5"
+                  strokeWidth={2.5}
+                  fill="#4f46e5"
+                  fillOpacity={0.24}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload || payload.length === 0) return null;
+                    const axis = payload[0]?.payload as (typeof locationCompetitiveness.axes)[number] | undefined;
+                    if (!axis) return null;
+                    return (
+                      <div className="bg-slate-900 text-white px-3 py-2 rounded-xl shadow-lg border border-slate-700 text-xs tabular-nums space-y-0.5">
+                        <div className="font-bold text-slate-100">{axis.subject}</div>
+                        <div className="font-mono font-black text-indigo-300">
+                          {axis.score}점 <span className="text-slate-400 font-normal">(기준 {axis.benchmark}점)</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">{axis.basis}</div>
+                      </div>
+                    );
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* 6-Axis Score Details & Field Calibration Sliders */}
+          <div className="lg:col-span-6 divide-y divide-slate-100 border-t lg:border-t-0 border-slate-100 text-xs tabular-nums">
+            {locationCompetitiveness.axes.map((axis) => {
+              const vsBench = axis.score - axis.benchmark;
+              return (
+                <div key={axis.key} className="py-2.5 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-bold text-slate-800">{axis.subject}</span>
+                      <span className="text-[11px] text-slate-400 ml-2 truncate">
+                        {axis.basis}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 font-mono">
+                      <span className={`text-[10px] font-bold ${
+                        vsBench >= 0 ? 'text-emerald-700' : 'text-amber-700'
+                      }`}>
+                        {vsBench >= 0 ? `+${vsBench}` : vsBench}
+                      </span>
+                      <strong className="text-slate-900 font-black w-11 text-right">
+                        {axis.score}점
+                      </strong>
+                    </div>
+                  </div>
+
+                  {axis.editable && onUpdateCandidate ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="range"
+                        min={20}
+                        max={100}
+                        step={1}
+                        value={axis.score}
+                        aria-label={`${axis.subject} 현장 평가 점수`}
+                        onChange={(e) =>
+                          handleLocationRatingChange(
+                            axis.key as 'hinterlandPopulation' | 'transitAccess' | 'visibility' | 'commercialVitality',
+                            Number(e.target.value)
+                          )
+                        }
+                        className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      />
+                      <span className="text-[10px] text-slate-400 whitespace-nowrap">현장 보정</span>
+                    </div>
+                  ) : (
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          axis.score >= 70 ? 'bg-indigo-600' : axis.score >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                        }`}
+                        style={{ width: `${axis.score}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

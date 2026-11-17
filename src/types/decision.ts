@@ -160,6 +160,39 @@ export interface CandidateLocation {
   // 04 종합판정 및 비교함 관리
   addedToCompare?: boolean; // 04 종합판정 후 비교함에 추가 여부
   evaluatedAt?: string; // 04 종합판정 완료 일시
+
+  // 입지 경쟁력 현장 보정 점수 (0~100, 선택 입력)
+  locationRatings?: {
+    hinterlandPopulation?: number;
+    transitAccess?: number;
+    visibility?: number;
+    commercialVitality?: number;
+  };
+
+  // 주소 기반 필지 정보 및 건축물대장 연동 호실 데이터
+  parcelInfo?: {
+    bcode?: string;
+    jibunAddress?: string;
+    buildingCode?: string;
+    buildingName?: string;
+  };
+  selectedUnitId?: string;
+  manualUnits?: BuildingUnitOption[];
+}
+
+export interface BuildingUnitOption {
+  id: string;
+  kind: 'unit' | 'floor' | 'manual';
+  dongNm?: string;
+  hoNm: string;
+  floorNumber: number;
+  floorLabel: string;
+  exclusiveAreaSqm: number;
+  commonAreaSqm?: number;
+  mainPurpose: string;
+  etcPurpose?: string;
+  mappedBuildingUse: BuildingUseType;
+  source: 'api' | 'manual';
 }
 
 export interface FinancialMetrics {

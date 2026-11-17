@@ -299,6 +299,7 @@ export default function App() {
             onGoToRisk={() => setCurrentStep('S5_RISK')}
             onToggleCompare={handleToggleCompare}
             onSaveSnapshot={handleSaveSnapshot}
+            onUpdateCandidate={updateCandidate}
           />
         )}
 

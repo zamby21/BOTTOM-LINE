@@ -9,6 +9,9 @@ export interface AddressSearchResult {
   bname: string;
   sido: string;
   sigungu: string;
+  bcode?: string;
+  sigunguCode?: string;
+  buildingCode?: string;
 }
 
 interface AddressSearchModalProps {
@@ -63,6 +66,9 @@ export const AddressSearchModal: React.FC<AddressSearchModalProps> = ({
               bname: data.bname || '',
               sido: data.sido || '',
               sigungu: data.sigungu || '',
+              bcode: data.bcode || '',
+              sigunguCode: data.sigunguCode || '',
+              buildingCode: data.buildingCode || '',
             });
             onClose();
           },
@@ -92,6 +98,9 @@ export const AddressSearchModal: React.FC<AddressSearchModalProps> = ({
                     bname: data.bname || '',
                     sido: data.sido || '',
                     sigungu: data.sigungu || '',
+                    bcode: data.bcode || '',
+                    sigunguCode: data.sigunguCode || '',
+                    buildingCode: data.buildingCode || '',
                   });
                   onClose();
                 },

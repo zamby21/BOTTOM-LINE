@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   CandidateLocation,
   BusinessCategory,
@@ -6,6 +6,7 @@ import {
   ZoningType,
   SchoolZoneType,
   RegionConversionType,
+  BuildingUnitOption,
 } from '../types/decision';
 import {
   INDUSTRY_BENCHMARKS,
@@ -42,6 +43,10 @@ import {
   Check,
   Copy,
   Map,
+  Layers,
+  Plus,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface S2InputProps {
@@ -103,6 +108,42 @@ export const S2Input: React.FC<S2InputProps> = ({
     predictRegulationsLocally(candidate.address, candidate.floor, candidate.businessType)
   );
 
+  // 건축물대장 연동 호실 조회 상태
+  const [isLoadingUnits, setIsLoadingUnits] = useState(false);
+  const [buildingTitle, setBuildingTitle] = useState<{
+    buildingName: string;
+    regstrKind: string;
+    mainPurpose: string;
+    etcPurpose: string;
+    groundFloors: number;
+    undergroundFloors: number;
+    totalAreaSqm: number;
+    approvalDate: string;
+    hasViolation: boolean;
+  } | null>(null);
+  const [apiUnits, setApiUnits] = useState<BuildingUnitOption[]>([]);
+  const [unitStatusCode, setUnitStatusCode] = useState<string | null>(null);
+  const [unitStatusMessage, setUnitStatusMessage] = useState<string | null>(null);
+  const [unitFilter, setUnitFilter] = useState('');
+  const [showManualUnitForm, setShowManualUnitForm] = useState(false);
+  const [manualHo, setManualHo] = useState('101호');
+  const [manualFloor, setManualFloor] = useState(1);
+  const [manualArea, setManualArea] = useState(49.5);
+  const [manualUse, setManualUse] = useState<BuildingUseType>('제1종근린생활시설');
+
+  useEffect(() => {
+    setBuildingTitle(null);
+    setApiUnits([]);
+    setUnitStatusCode(null);
+    setUnitStatusMessage(null);
+    setUnitFilter('');
+    setShowManualUnitForm(false);
+    setLastAutoDetectedInfo(detectRegionFromAddress(candidate.address));
+    setLastRegulatoryPrediction(
+      predictRegulationsLocally(candidate.address, candidate.floor, candidate.businessType)
+    );
+  }, [candidate.id]);
+
   const handleCopyEeisAddress = () => {
     if (candidate.address && navigator.clipboard) {
       navigator.clipboard.writeText(candidate.address).catch(() => {});
@@ -140,6 +181,10 @@ export const S2Input: React.FC<S2InputProps> = ({
 
     setLastAutoDetectedInfo(detected);
     setLastRegulatoryPrediction(regPred);
+    setBuildingTitle(null);
+    setApiUnits([]);
+    setUnitStatusCode(null);
+    setUnitStatusMessage(null);
 
     onChange({
       ...candidate,
@@ -147,6 +192,118 @@ export const S2Input: React.FC<S2InputProps> = ({
       regionCode: detected.regionCode,
       schoolZone: regPred.predictedSchoolZone,
       hasViolation: regPred.hasViolationSuspected,
+      parcelInfo: undefined,
+      selectedUnitId: undefined,
+    });
+  };
+
+  const fetchBuildingRegisterUnits = async (
+    targetAddress: string,
+    targetJibun?: string,
+    targetBcode?: string
+  ) => {
+    if (!targetAddress.trim()) return;
+    setIsLoadingUnits(true);
+    setUnitStatusMessage(null);
+    setUnitStatusCode(null);
+
+    try {
+      const response = await fetch('/api/building-register/units', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: targetAddress,
+          jibunAddress: targetJibun || '',
+          bcode: targetBcode || '',
+        }),
+      });
+      const json = await response.json();
+      if (json.success) {
+        setBuildingTitle(json.buildingTitle || null);
+        const fetchedUnits: BuildingUnitOption[] = Array.isArray(json.units) ? json.units : [];
+        setApiUnits(fetchedUnits);
+        if (fetchedUnits.length === 0) {
+          setUnitStatusCode('NO_UNITS');
+          setUnitStatusMessage('해당 필지에 등록된 전유 호실/층별 데이터가 없습니다. 정부24에서 대장을 직접 확인하거나 아래에 호실을 등록하세요.');
+        } else {
+          setUnitStatusCode('READY');
+          setUnitStatusMessage(null);
+        }
+      } else {
+        setBuildingTitle(null);
+        setApiUnits([]);
+        setUnitStatusCode(json.code || 'SERVER_ERROR');
+        setUnitStatusMessage(json.message || '건축물대장 호실 정보를 불러오지 못했습니다.');
+      }
+    } catch (err: any) {
+      setBuildingTitle(null);
+      setApiUnits([]);
+      setUnitStatusCode('SERVER_ERROR');
+      setUnitStatusMessage(err?.message || '건축물대장 API 통신 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoadingUnits(false);
+    }
+  };
+
+  const handleSelectBuildingUnit = (unit: BuildingUnitOption) => {
+    const regPred = predictRegulationsLocally(candidate.address, unit.floorNumber, candidate.businessType);
+    setLastRegulatoryPrediction(regPred);
+
+    const formattedDetail = [
+      unit.dongNm ? `${unit.dongNm}` : '',
+      unit.floorLabel,
+      unit.hoNm !== `${unit.floorLabel} 전체` ? unit.hoNm : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    onChange({
+      ...candidate,
+      detailAddress: formattedDetail || unit.hoNm,
+      areaSqm: unit.exclusiveAreaSqm,
+      floor: unit.floorNumber,
+      buildingUse: unit.mappedBuildingUse,
+      selectedUnitId: unit.id,
+      hasViolation: buildingTitle?.hasViolation ? true : candidate.hasViolation,
+    });
+  };
+
+  const handleAddManualUnit = () => {
+    const cleanHo = manualHo.trim() || '101호';
+    const floorLabel = manualFloor < 0 ? `지하 ${Math.abs(manualFloor)}층` : `${manualFloor}층`;
+    const newUnit: BuildingUnitOption = {
+      id: `manual-unit-${Date.now()}`,
+      kind: 'manual',
+      hoNm: cleanHo,
+      floorNumber: manualFloor,
+      floorLabel,
+      exclusiveAreaSqm: manualArea > 0 ? manualArea : 33,
+      mainPurpose: manualUse,
+      mappedBuildingUse: manualUse,
+      source: 'manual',
+    };
+    const nextManualUnits = [...(candidate.manualUnits || []), newUnit];
+    const regPred = predictRegulationsLocally(candidate.address, newUnit.floorNumber, candidate.businessType);
+    setLastRegulatoryPrediction(regPred);
+
+    onChange({
+      ...candidate,
+      manualUnits: nextManualUnits,
+      detailAddress: `${newUnit.floorLabel} ${newUnit.hoNm}`,
+      areaSqm: newUnit.exclusiveAreaSqm,
+      floor: newUnit.floorNumber,
+      buildingUse: newUnit.mappedBuildingUse,
+      selectedUnitId: newUnit.id,
+    });
+    setShowManualUnitForm(false);
+  };
+
+  const handleRemoveManualUnit = (unitId: string) => {
+    const nextManual = (candidate.manualUnits || []).filter((u) => u.id !== unitId);
+    onChange({
+      ...candidate,
+      manualUnits: nextManual,
+      selectedUnitId: candidate.selectedUnitId === unitId ? undefined : candidate.selectedUnitId,
     });
   };
 
@@ -173,7 +330,23 @@ export const S2Input: React.FC<S2InputProps> = ({
       regionCode: detected.regionCode,
       schoolZone: regPred.predictedSchoolZone,
       hasViolation: regPred.hasViolationSuspected,
+      parcelInfo: {
+        bcode: res.bcode || '',
+        jibunAddress: res.jibunAddress || '',
+        buildingCode: res.buildingCode || '',
+        buildingName: res.buildingName || '',
+      },
+      selectedUnitId: undefined,
     });
+
+    if (res.bcode && res.jibunAddress) {
+      fetchBuildingRegisterUnits(chosenAddress, res.jibunAddress, res.bcode);
+    } else {
+      setBuildingTitle(null);
+      setApiUnits([]);
+      setUnitStatusCode('PARCEL_CODE_REQUIRED');
+      setUnitStatusMessage('선택한 상권 프리셋에는 세부 지번 코드가 없습니다. [주소 검색 (우편번호)]으로 실제 주소를 지정하면 건축물대장과 연동됩니다.');
+    }
   };
 
   // Gemini AI 정밀 행정 스크리닝 (주소 기반 교육환경구역 및 위반건축물 위험도 심층 분석)
@@ -395,6 +568,270 @@ export const S2Input: React.FC<S2InputProps> = ({
           <ShieldCheck className="w-4 h-4 text-indigo-600" />
           2. 공간 규격 및 대장·인허가 환경 (주소 기반 자동 판정)
         </h3>
+
+        {/* Building Register Unit (호실) Lookup & Selector Panel */}
+        {(() => {
+          const combinedUnits: BuildingUnitOption[] = [...apiUnits, ...(candidate.manualUnits || [])];
+          const filteredUnits = unitFilter.trim()
+            ? combinedUnits.filter((u) =>
+                `${u.dongNm || ''} ${u.floorLabel} ${u.hoNm} ${u.mainPurpose} ${u.etcPurpose || ''}`
+                  .toLowerCase()
+                  .includes(unitFilter.trim().toLowerCase())
+              )
+            : combinedUnits;
+
+          return (
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-blue-600" />
+                    <span className="text-xs sm:text-sm font-bold text-slate-900">
+                      위치 연동 건축물대장 · 호실(전유부) 선택
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {candidate.parcelInfo?.jibunAddress
+                      ? `연동 지번: ${candidate.parcelInfo.jibunAddress}`
+                      : '우편번호 검색으로 소재지를 선택하면 해당 건물의 호실(전용면적·층수·용도)을 불러와 선택할 수 있습니다.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchBuildingRegisterUnits(
+                        candidate.address,
+                        candidate.parcelInfo?.jibunAddress,
+                        candidate.parcelInfo?.bcode
+                      )
+                    }
+                    disabled={isLoadingUnits || !candidate.address}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-slate-300 text-white font-bold text-xs shadow-2xs transition-all cursor-pointer"
+                  >
+                    {isLoadingUnits ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        대장 조회 중...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        건축물대장 호실 불러오기
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowManualUnitForm(!showManualUnitForm)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-all cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                    확인 호실 직접 등록
+                  </button>
+                </div>
+              </div>
+
+              {/* Building Title Summary from Official Register */}
+              {buildingTitle && (
+                <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2 tabular-nums">
+                  <div className="space-y-0.5">
+                    <div className="font-bold text-slate-900">
+                      {buildingTitle.buildingName || '표제부 건축물'} · {buildingTitle.regstrKind || '건축물대장'}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      주용도: {buildingTitle.mainPurpose || '-'} · 지하 {buildingTitle.undergroundFloors}층 / 지상 {buildingTitle.groundFloors}층 · 연면적 {buildingTitle.totalAreaSqm.toLocaleString()}㎡
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                    buildingTitle.hasViolation
+                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  }`}>
+                    {buildingTitle.hasViolation ? '위반건축물 표기 감지' : '대장상 위반 표기 없음'}
+                  </span>
+                </div>
+              )}
+
+              {/* Status Notice (Missing Key / Missing Parcel Code / Empty) */}
+              {unitStatusMessage && (
+                <div className="p-3 rounded-xl bg-white border border-amber-200 text-xs text-slate-700 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <span>{unitStatusMessage}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 pl-6 text-[11px]">
+                    {unitStatusCode === 'PARCEL_CODE_REQUIRED' && (
+                      <button
+                        type="button"
+                        onClick={() => setIsAddressModalOpen(true)}
+                        className="font-bold text-blue-600 hover:underline cursor-pointer"
+                      >
+                        우편번호 주소 검색 열기 ➔
+                      </button>
+                    )}
+                    <a
+                      href="https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000026"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-blue-600 hover:underline"
+                    >
+                      정부24 건축물대장 열람
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a
+                      href="https://cloud.eais.go.kr"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-indigo-600 hover:underline"
+                    >
+                      세움터 건축HUB 조회
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Inspected Unit Quick Adder */}
+              {showManualUnitForm && (
+                <div className="p-3.5 rounded-xl bg-white border border-indigo-200 space-y-3 text-xs">
+                  <div className="font-bold text-slate-900">
+                    정부24·세움터에서 확인한 호실 정보 추가 (비교 선택용)
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">호실명</label>
+                      <input
+                        type="text"
+                        value={manualHo}
+                        onChange={(e) => setManualHo(e.target.value)}
+                        placeholder="예: 101호"
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">층수 (지하는 음수)</label>
+                      <input
+                        type="number"
+                        value={manualFloor}
+                        onChange={(e) => setManualFloor(parseInt(e.target.value, 10) || 1)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">전용면적 (㎡)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={manualArea}
+                        onChange={(e) => setManualArea(parseFloat(e.target.value) || 0)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">대장상 용도</label>
+                      <select
+                        value={manualUse}
+                        onChange={(e) => setManualUse(e.target.value as BuildingUseType)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white"
+                      >
+                        {BUILDING_USES.map((u) => (
+                          <option key={u} value={u}>{u}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowManualUnitForm(false)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 font-semibold text-xs"
+                    >
+                      취소
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddManualUnit}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs cursor-pointer"
+                    >
+                      목록에 추가 및 적용
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Unit Selector List (API units + Manual checked units) */}
+              {combinedUnits.length > 0 && (
+                <div className="space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-slate-700">
+                      선택 가능한 호실 ({filteredUnits.length}개) — 클릭 시 상세호실·전용면적·층수·용도가 자동 입력됩니다
+                    </span>
+                    {combinedUnits.length > 6 && (
+                      <input
+                        type="text"
+                        value={unitFilter}
+                        onChange={(e) => setUnitFilter(e.target.value)}
+                        placeholder="호수·층·용도 검색 (예: 101호, 1층)"
+                        className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg bg-white w-full sm:w-52"
+                      />
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-60 overflow-y-auto pr-1">
+                    {filteredUnits.map((unit) => {
+                      const isSelected = candidate.selectedUnitId === unit.id;
+                      const pyeong = (unit.exclusiveAreaSqm * 0.3025).toFixed(1);
+                      return (
+                        <div
+                          key={unit.id}
+                          className={`p-2.5 rounded-xl border text-xs transition-all flex items-start justify-between gap-2 ${
+                            isSelected
+                              ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500'
+                              : 'bg-white border-slate-200 hover:border-blue-300'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSelectBuildingUnit(unit)}
+                            className="text-left flex-1 min-w-0 space-y-0.5 cursor-pointer"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <strong className="text-slate-900 truncate">
+                                {unit.dongNm ? `${unit.dongNm} ` : ''}{unit.floorLabel} {unit.hoNm}
+                              </strong>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />}
+                            </div>
+                            <div className="text-[11px] font-semibold text-blue-700 tabular-nums">
+                              전용 {unit.exclusiveAreaSqm}㎡ (약 {pyeong}평)
+                              {unit.commonAreaSqm ? ` · 공용 ${unit.commonAreaSqm}㎡` : ''}
+                            </div>
+                            <div className="text-[10px] text-slate-500 truncate">
+                              {unit.etcPurpose || unit.mainPurpose} ({unit.source === 'api' ? '대장연동' : '직접등록'})
+                            </div>
+                          </button>
+
+                          {unit.source === 'manual' && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveManualUnit(unit.id)}
+                              title="목록에서 삭제"
+                              className="p-1 text-slate-400 hover:text-rose-600 flex-shrink-0 cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>

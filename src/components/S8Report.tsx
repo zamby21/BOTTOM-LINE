@@ -118,7 +118,18 @@ ${candidate.aiReport || verdict.summary}`;
   };
 
   const handlePrint = () => {
+    const prevTitle = document.title;
+    const safeName = (candidate.name || '후보지').replace(/[\\/:*?"<>|]/g, '_');
+    document.title = `BOTTOM_LINE_${safeName}_입점심사리포트`;
+
+    const restoreTitle = () => {
+      document.title = prevTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+    window.addEventListener('afterprint', restoreTitle);
+
     window.print();
+    setTimeout(restoreTitle, 1500);
   };
 
   return (
@@ -192,10 +203,10 @@ ${candidate.aiReport || verdict.summary}`;
           <button
             type="button"
             onClick={handlePrint}
-            className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all"
+            className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
-            PDF 인쇄 / 저장
+            인쇄/PDF 저장
           </button>
         </div>
       </div>
@@ -237,7 +248,7 @@ ${candidate.aiReport || verdict.summary}`;
         </div>
 
         {/* Executive Verdict Callout */}
-        <div className={`p-4 sm:p-6 rounded-2xl border-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 ${
+        <div className={`p-4 sm:p-6 rounded-2xl border-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:break-inside-avoid ${
           verdict.code === 'GO'
             ? 'bg-emerald-50/60 border-emerald-500'
             : verdict.code === 'CONDITIONAL'
@@ -268,7 +279,7 @@ ${candidate.aiReport || verdict.summary}`;
         </div>
 
         {/* Financial Highlights Table (2x2 on mobile) */}
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 print:break-inside-avoid">
           <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-1.5 border-b border-slate-200 pb-2">
             <TrendingUp className="w-4 h-4 text-blue-600" />
             1. 핵심 재무 및 손익 검증 (Bottom-Line Metrics)
@@ -324,7 +335,7 @@ ${candidate.aiReport || verdict.summary}`;
         </div>
 
         {/* 6 Risk Rules Table */}
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 print:break-inside-avoid">
           <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-1.5 border-b border-slate-200 pb-2">
             <ShieldCheck className="w-4 h-4 text-amber-600" />
             2. 6대 행정·법률 규제 심사 결과 (Regulatory Audit)
@@ -378,7 +389,7 @@ ${candidate.aiReport || verdict.summary}`;
         </div>
 
         {/* 3. Due-Diligence Evidence & Special Clauses (PropScope Enhancement) */}
-        <div className="space-y-4">
+        <div className="space-y-4 print:break-inside-avoid">
           <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-1.5 border-b border-slate-200 pb-2">
             <ClipboardCheck className="w-4 h-4 text-blue-600" />
             3. 실사 확인 근거 및 계약 시 필수 특약 ({specialClauses.length}선)
@@ -486,6 +497,21 @@ ${candidate.aiReport || verdict.summary}`;
             Powered by BOTTOM LINE Engine
           </div>
         </div>
+      </div>
+
+      {/* Bottom Convenience Print / PDF Save Bar */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-2xl p-4 border border-slate-200 shadow-xs print:hidden">
+        <p className="text-xs text-slate-500">
+          브라우저 인쇄 대화상자에서 대상을 <strong>&lsquo;PDF로 저장&rsquo;</strong>으로 선택하면 전체 심사서를 PDF 파일로 보관할 수 있습니다.
+        </p>
+        <button
+          type="button"
+          onClick={handlePrint}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all flex-shrink-0 cursor-pointer"
+        >
+          <Printer className="w-3.5 h-3.5" />
+          인쇄/PDF 저장
+        </button>
       </div>
     </div>
   );
