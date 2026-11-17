@@ -1,6 +1,17 @@
 import React, { useState } from 'react';
-import { CandidateLocation, RiskEvaluation, RiskRuleResult } from '../types/decision';
-import { evaluateRiskRules } from '../utils/engine';
+import {
+  CandidateLocation,
+  DueDiligenceKey,
+  DueDiligenceStatus,
+  RiskEvaluation,
+  RiskRuleResult,
+} from '../types/decision';
+import {
+  calculateFinancialMetrics,
+  evaluateRiskRules,
+  generateSpecialContractClauses,
+  getCandidateDueDiligence,
+} from '../utils/engine';
 import { EEIS_GIS_URL } from '../utils/regulatoryPredictor';
 import {
   ShieldAlert,
@@ -16,24 +27,73 @@ import {
   Flame,
   FileSpreadsheet,
   ExternalLink,
-  Copy,
   Check,
   Map,
+  ClipboardCheck,
+  FileSignature,
+  Copy,
 } from 'lucide-react';
 
 interface S5RiskProps {
   candidate: CandidateLocation;
+  onChange?: (updated: CandidateLocation) => void;
   onNext: () => void;
   onPrev: () => void;
 }
 
+const DD_STATUS_OPTIONS: { value: DueDiligenceStatus; label: string; activeClass: string }[] = [
+  { value: 'unverified', label: '미확인', activeClass: 'bg-slate-700 text-white border-slate-700' },
+  { value: 'verified', label: '확인완료', activeClass: 'bg-emerald-600 text-white border-emerald-600' },
+  { value: 'conditional', label: '조건충족 필요', activeClass: 'bg-amber-500 text-white border-amber-500' },
+  { value: 'critical', label: '치명적 리스크', activeClass: 'bg-rose-600 text-white border-rose-600' },
+];
+
 export const S5Risk: React.FC<S5RiskProps> = ({
   candidate,
+  onChange,
   onNext,
   onPrev,
 }) => {
   const [gisCopied, setGisCopied] = useState(false);
+  const [copiedClauseId, setCopiedClauseId] = useState<string | null>(null);
+  const [copiedAllClauses, setCopiedAllClauses] = useState(false);
+
+  const metrics = calculateFinancialMetrics(candidate);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
+  const specialClauses = generateSpecialContractClauses(candidate, riskEval, metrics);
+  const dueDiligenceItems = getCandidateDueDiligence(candidate);
+
+  const verifiedCount = dueDiligenceItems.filter((d) => d.status === 'verified').length;
+  const criticalCount = dueDiligenceItems.filter((d) => d.status === 'critical').length;
+
+  const updateDueDiligenceItem = (
+    key: DueDiligenceKey,
+    patch: Partial<{ status: DueDiligenceStatus; sourceNote: string; memo: string }>
+  ) => {
+    if (!onChange) return;
+    const nextList = dueDiligenceItems.map((item) =>
+      item.key === key ? { ...item, ...patch } : item
+    );
+    onChange({
+      ...candidate,
+      dueDiligence: nextList,
+    });
+  };
+
+  const handleCopyClause = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedClauseId(id);
+    setTimeout(() => setCopiedClauseId(null), 2000);
+  };
+
+  const handleCopyAllClauses = () => {
+    const joined = specialClauses
+      .map((c, idx) => `[특약 ${idx + 1}] ${c.title}\n${c.clauseText}`)
+      .join('\n\n');
+    navigator.clipboard.writeText(joined);
+    setCopiedAllClauses(true);
+    setTimeout(() => setCopiedAllClauses(false), 2500);
+  };
 
   const rules: { rule: RiskRuleResult; icon: React.ComponentType<{ className?: string }> }[] = [
     { rule: riskEval.r1, icon: Building },
@@ -45,22 +105,22 @@ export const S5Risk: React.FC<S5RiskProps> = ({
   ];
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+    <div className="max-w-5xl mx-auto space-y-6 pb-24">
       {/* Step Header */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 text-xs font-bold mb-2">
             <ShieldAlert className="w-3.5 h-3.5" />
             03 RISK (해도 되는가)
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
-            6대 법률·행정 규제 1차 스크리닝
+            6대 법률·행정 규제 점검 & 실사 근거 기록
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            수익성이 좋아도 규제에 걸리면 영업 자체가 불가능합니다. 6개 리스크 룰을 순차 검토하여 계약 전 필수 점검 사항을 도출합니다.
+            6대 규제 스크리닝 결과와 더불어, 현장·서류 실사 확인 근거와 계약서 필수 특약 문구를 정리합니다.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button
             type="button"
             onClick={onPrev}
@@ -71,9 +131,9 @@ export const S5Risk: React.FC<S5RiskProps> = ({
           <button
             type="button"
             onClick={onNext}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-sm transition-all"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-sm transition-all"
           >
-            다음: 04 Decision 종합 판정
+            다음: 04 종합 판정
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
@@ -88,7 +148,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
           : 'bg-emerald-50 border-emerald-300 text-emerald-900'
       }`}>
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-xs ${
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-white shadow-xs flex-shrink-0 ${
             riskEval.hasBlockingRisk
               ? 'bg-rose-600'
               : riskEval.hasConditionalRisk
@@ -121,7 +181,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
           </div>
         </div>
 
-        <div className="text-right flex-shrink-0">
+        <div className="text-right flex-shrink-0 tabular-nums">
           <span className="text-xs font-bold block opacity-75">리스크 평가 감점</span>
           <span className="text-xl font-black">
             {riskEval.hasBlockingRisk ? '-15점 (0점 처리)' : `-${riskEval.totalPenalty}점`}
@@ -166,7 +226,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
                       <Icon className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      <span className="text-[10px] font-bold text-slate-400 block">
                         {rule.code} 룰
                       </span>
                       <h4 className="font-bold text-slate-900 text-sm">
@@ -212,7 +272,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
               {/* Action Guide */}
               <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-600">
                 <span className="font-bold text-blue-600 block mb-0.5">
-                  📌 실무 대응 가이드:
+                  실무 대응 가이드:
                 </span>
                 {rule.actionGuide}
               </div>
@@ -222,7 +282,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
                 <div className="mt-3 p-2.5 rounded-xl bg-indigo-50/80 border border-indigo-200/80 space-y-1.5">
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-indigo-900">연동 주소 정화구역 GIS 지도 조회</span>
-                    <span className="text-[10px] text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded font-semibold">
+                    <span className="text-[10px] text-indigo-700 font-semibold">
                       eeis.schoolkeepa.or.kr
                     </span>
                   </div>
@@ -278,16 +338,150 @@ export const S5Risk: React.FC<S5RiskProps> = ({
         })}
       </div>
 
+      {/* PropScope Addition 1: 5-Item Physical Due-Diligence Evidence Log */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-base">
+              <ClipboardCheck className="w-4 h-4 text-blue-600" />
+              입점 실사 확인 근거 기록장 (5대 현장·서류 검증)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              자동 스크리닝(가정)과 실제 확인 근거를 구분하기 위해, 원본 대장·기관·현장에서 직접 확인한 결과를 기록하세요.
+            </p>
+          </div>
+          <div className="text-xs font-bold text-slate-700 tabular-nums">
+            확인 완료 {verifiedCount} / {dueDiligenceItems.length}건
+            {criticalCount > 0 && <span className="text-rose-600 ml-2">· 치명적 리스크 {criticalCount}건</span>}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {dueDiligenceItems.map((item) => (
+            <div
+              key={item.key}
+              className={`p-4 rounded-xl border space-y-3 transition-colors ${
+                item.status === 'critical'
+                  ? 'bg-rose-50/40 border-rose-300'
+                  : item.status === 'conditional'
+                  ? 'bg-amber-50/40 border-amber-200'
+                  : item.status === 'verified'
+                  ? 'bg-emerald-50/30 border-emerald-200'
+                  : 'bg-slate-50/60 border-slate-200'
+              }`}
+            >
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                <div>
+                  <h4 className="font-bold text-slate-900 text-xs sm:text-sm">{item.label}</h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{item.description}</p>
+                </div>
+
+                {/* Status Selector Buttons */}
+                <div className="flex flex-wrap gap-1">
+                  {DD_STATUS_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => updateDueDiligenceItem(item.key, { status: opt.value })}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                        item.status === opt.value
+                          ? opt.activeClass
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <input
+                  type="text"
+                  value={item.sourceNote}
+                  onChange={(e) => updateDueDiligenceItem(item.key, { sourceNote: e.target.value })}
+                  placeholder="확인한 문서·기관·일자 (예: 정부24 건축물대장 2026-11-16 열람)"
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <input
+                  type="text"
+                  value={item.memo}
+                  onChange={(e) => updateDueDiligenceItem(item.key, { memo: e.target.value })}
+                  placeholder="실제 확인 결과 요약 (예: 정화조 50인용 확인, 급배수 문제없음)"
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* PropScope Addition 2: Dynamic Lease Special Contract Clauses */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-base">
+              <FileSignature className="w-4 h-4 text-indigo-600" />
+              맞춤형 임대차 계약 필수 특약 {specialClauses.length}선 (자동 생성)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              현재 후보지의 규제·임대조건 분석 결과에 맞춰 계약서에 반드시 삽입해야 할 실전 특약 문구입니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCopyAllClauses}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all"
+          >
+            {copiedAllClauses ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            {copiedAllClauses ? '특약 전체 복사됨' : '특약 전체 복사'}
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {specialClauses.map((clause, idx) => (
+            <div key={clause.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className={`font-black ${clause.priority === '필수' ? 'text-rose-600' : 'text-blue-700'}`}>
+                    [{clause.priority}]
+                  </span>
+                  <span className="font-bold text-slate-900">
+                    {idx + 1}. {clause.title}
+                  </span>
+                  <span className="text-slate-400">·</span>
+                  <span className="text-slate-500 font-medium">{clause.category}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleCopyClause(clause.id, clause.clauseText)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-[11px] font-bold transition-colors"
+                >
+                  {copiedClauseId === clause.id ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  {copiedClauseId === clause.id ? '복사됨' : '문구 복사'}
+                </button>
+              </div>
+              <p className="text-xs text-slate-800 bg-white p-3 rounded-lg border border-slate-200/80 leading-relaxed font-medium">
+                “{clause.clauseText}”
+              </p>
+              <p className="text-[11px] text-slate-500">
+                도입 사유: {clause.reason}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* District Office Contact & Verification Notice */}
       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 text-xs text-slate-600 flex items-start gap-3">
         <HelpCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="space-y-1">
           <span className="font-bold text-slate-800">
-            1차 스크리닝 후 최종 관할 구청 확인 안내 (Proposal 07장 명시)
+            1차 스크리닝 후 최종 관할 구청 확인 안내
           </span>
           <p className="leading-relaxed">
-            본 도구의 규제 판정은 토지이용계획 및 건축법령에 기반한 1차 위험 스크리닝입니다. 실제 계약 전에는 반드시 
-            관할 시·군·구청(건축과, 위생과, 경제과) 및 관할 소방서 예방과에 도면을 지참하여 최종 인허가 가능 여부를 확인하시기 바랍니다.
+            본 도구의 규제 판정은 입력값과 법령 기준에 따른 1차 위험 스크리닝입니다. 실제 계약 전에는 반드시 
+            관할 시·군·구청(건축과, 위생과, 경제과) 및 관할 소방서 예방과에 도면을 지참하여 최종 인허가 가능 여부를 확인하고 위 실사 기록장에 남기시기 바랍니다.
           </p>
         </div>
       </div>

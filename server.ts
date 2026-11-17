@@ -215,6 +215,63 @@ app.post('/api/gemini/screen-address', async (req: Request, res: Response) => {
   }
 });
 
+// Endpoint: Regional Commercial Market & Rental Trend Briefing
+app.post('/api/gemini/market-trends', async (req: Request, res: Response) => {
+  try {
+    const { address, businessName, rentPerPyeong, areaPyeong, monthlyRent } = req.body || {};
+
+    if (!address || typeof address !== 'string' || !address.trim()) {
+      res.status(400).json({
+        success: false,
+        error: '후보지 주소를 먼저 입력한 뒤 상권 분석을 실행해주세요.',
+      });
+      return;
+    }
+
+    const prompt = `
+당신은 대한민국 상업용 부동산 상권 분석 및 임대 시장 리서치 전문가입니다.
+아래 주소와 업종 조건을 바탕으로 해당 지역·상권의 상업 임대 동향 및 입지 특성을 분석해주세요.
+(실제 한국부동산원 R-ONE이나 소상공인365 공식 통계 수치가 아닌, 상권 구조 기반 정성/정량 참고 분석임을 전제로 작성하세요.)
+
+- 주소: ${address}
+- 희망 업종: ${businessName || '일반 상업시설'}
+- 전용면적: ${typeof areaPyeong === 'number' ? areaPyeong.toFixed(1) : '-'}평
+- 현재 검토 중인 평당 월 임차료(월세+관리비): ${typeof rentPerPyeong === 'number' ? rentPerPyeong.toFixed(1) : '-'}만원/평 (월 ${monthlyRent ?? '-'}만원)
+
+반드시 아래 JSON 형식으로 응답하세요:
+{
+  "districtName": string (예: "성동구 성수동 연무장길 상권"),
+  "commercialCharacter": string (상권 성격 요약 1~2문장),
+  "footTrafficProfile": string (주요 유동인구 연령대, 평일/주말 비중, 피크 시간대),
+  "rentBenchmarkRange": string (해당 권역 1층 소규모 상가 참고 평당 월세 범위, 예: "평당 18~28만원 수준"),
+  "rentAssessment": string (현재 검토 매물 평당 임차료의 적정성 평가 1~2문장),
+  "vacancyAndCompetitionRisk": string (공실 추이 및 동종 업종 경쟁 밀집도 유의사항 1~2문장),
+  "checkPoints": [string, string, string] (현장 방문 및 공식 통계 대조 시 꼭 확인할 3가지)
+}
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.3,
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    res.json({ success: true, data: parsed });
+  } catch (error: any) {
+    console.error('Market trends error:', error);
+    const rawMsg = String(error?.message || '');
+    const friendly =
+      rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE')
+        ? 'AI 분석 서버 요청량이 일시적으로 많습니다. 잠시 후 다시 시도해주세요.'
+        : rawMsg || '지역 상권 분석 중 오류가 발생했습니다.';
+    res.status(500).json({ success: false, error: friendly });
+  }
+});
+
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 

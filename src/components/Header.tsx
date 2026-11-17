@@ -9,7 +9,8 @@ import {
   FileText,
   Menu,
   X,
-  ChevronDown,
+  BarChart3,
+  History,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -20,6 +21,9 @@ interface HeaderProps {
   onResetPresets: () => void;
   onOpenReport: () => void;
   onOpenCompare: () => void;
+  onOpenRegionMarket?: () => void;
+  onOpenHistory?: () => void;
+  historyCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,6 +34,9 @@ export const Header: React.FC<HeaderProps> = ({
   onResetPresets,
   onOpenReport,
   onOpenCompare,
+  onOpenRegionMarket,
+  onOpenHistory,
+  historyCount = 0,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const activeCandidate = candidates.find((c) => c.id === activeCandidateId) || candidates[0];
@@ -87,10 +94,34 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             </div>
 
+            {onOpenRegionMarket && (
+              <button
+                type="button"
+                onClick={onOpenRegionMarket}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs"
+                title="지역·상권 통계 및 임대 수준 비교"
+              >
+                <BarChart3 className="w-3.5 h-3.5 text-purple-600" />
+                지역 데이터
+              </button>
+            )}
+
+            {onOpenHistory && (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs tabular-nums"
+                title="저장된 분석 히스토리"
+              >
+                <History className="w-3.5 h-3.5 text-blue-600" />
+                분석 이력 ({historyCount})
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onOpenCompare}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs tabular-nums"
             >
               <Scale className="w-3.5 h-3.5 text-indigo-600" />
               후보지 비교 ({comparedCount})
@@ -178,6 +209,37 @@ export const Header: React.FC<HeaderProps> = ({
                 ))}
               </div>
             </div>
+
+            {(onOpenRegionMarket || onOpenHistory) && (
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                {onOpenRegionMarket && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenRegionMarket();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="py-2 px-3 rounded-xl bg-purple-50 border border-purple-200 text-purple-800 text-xs font-bold flex items-center justify-center gap-1.5"
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    지역·상권 데이터
+                  </button>
+                )}
+                {onOpenHistory && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenHistory();
+                      setMobileMenuOpen(false);
+                    }}
+                    className="py-2 px-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold flex items-center justify-center gap-1.5 tabular-nums"
+                  >
+                    <History className="w-3.5 h-3.5" />
+                    분석 이력 ({historyCount})
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2 pt-2 border-t border-slate-100">
               <button

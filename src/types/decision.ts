@@ -44,6 +44,19 @@ export type RegionConversionType =
 
 export type RiskStatus = 'PASS' | 'CONDITIONAL' | 'RECOMMEND_CHECK' | 'BLOCK';
 
+export type DueDiligenceStatus = 'unverified' | 'verified' | 'conditional' | 'critical';
+
+export type DueDiligenceKey = 'building' | 'zoning' | 'permit' | 'facility' | 'lease';
+
+export interface DueDiligenceItem {
+  key: DueDiligenceKey;
+  label: string;
+  description: string;
+  status: DueDiligenceStatus;
+  sourceNote: string; // 확인한 문서·기관·일자
+  memo: string; // 확인 결과 요약
+}
+
 export interface RiskRuleResult {
   code: 'R1' | 'R2' | 'R3' | 'R4' | 'R5' | 'R6';
   name: string;
@@ -82,7 +95,7 @@ export interface CandidateLocation {
   floor: number; // 층수 (-1 = 지하 1층, 1 = 1층, 2 = 2층 ...)
   hasViolation: boolean; // 건축물대장상 위반건축물 여부
   schoolZone: SchoolZoneType; // 교육환경보호구역 여부
-  
+
   // 임대 조건 (만원 단위)
   deposit: number; // 보증금
   monthlyRent: number; // 월세
@@ -90,10 +103,15 @@ export interface CandidateLocation {
   premium: number; // 권리금
 
   // 매출 (Top-line, 만원 단위)
-  revenueSource: 'openup' | 'ai_estimate' | 'custom';
+  revenueSource: 'openup' | 'ai_estimate' | 'unit_calc' | 'custom';
   grossRevenue: number; // 결제액 (월 기준)
   isVatIncluded: boolean; // 부가세 포함 여부 (포함 시 공급가액 = grossRevenue / 1.1)
-  
+
+  // 객단가 × 고객수 매출 계산기 보조 필드
+  unitPrice?: number; // 평균 객단가 (원)
+  dailyCustomers?: number; // 일평균 결제/고객 수 (명)
+  operatingDaysPerMonth?: number; // 월 영업일수 (일)
+
   // 오픈업 또는 AI 참고 데이터
   openupData?: {
     storeName?: string;
@@ -112,17 +130,28 @@ export interface CandidateLocation {
   cardFeeRate: number; // 카드 수수료율 (%, 기본 1.5%)
   deliveryRatio: number; // 배달 매출 비중 (%)
   deliveryFeeRate: number; // 배달 수수료율 (%, 기본 15%)
-  
+
   // 인건비
   fullTimeStaff: number; // 풀타임 환산 직원 수
   hourlyWage: number; // 적용 시급 (원)
   socialInsuranceRate: number; // 4대보험 사업주 부담률 (%, 기본 10.5%)
   ownerSalary: number; // 대표자 목표 인건비 (만원)
 
+  // 추가 고정비 (만원 단위, PropScope 보완 항목)
+  utilityCost?: number; // 월 공과금 (전기·수도·가스·인터넷)
+  marketingCost?: number; // 월 광고·마케팅비
+  otherFixedCost?: number; // 기타 월 고정비 (세무기장·보험 등)
+
   // 투자 및 감가상각
   interiorCost: number; // 인테리어 비용 (만원)
   equipmentCost: number; // 설비 및 집기 비용 (만원)
   depreciationMonths: number; // 감가상각 기간 (개월, 기본 60개월)
+  otherInitialCost?: number; // 기타 초기 비용 (가맹비·초도물량 등, 만원)
+  workingCapital?: number; // 초기 운전자금 (예비 운영자금, 만원)
+  costChecked?: boolean; // 비용 누락 여부 자가 점검 확인
+
+  // 03 입점 확인사항 (실사 근거 기록장)
+  dueDiligence?: DueDiligenceItem[];
 
   // 저장된 AI 해설 리포트 (옵션)
   aiReport?: string;
@@ -137,25 +166,32 @@ export interface FinancialMetrics {
   monthlyRevenue: number; // S (공급가액, 만원)
   variableCostRate: number; // v (0~1)
   totalVariableCost: number; // S * v (만원)
-  
+
   laborCost: number; // 월 인건비 (만원)
   monthlyDepreciation: number; // 감가상각비 (만원)
   monthlyRentAndMaintenance: number; // 임대료 + 관리비 (만원)
-  totalFixedCost: number; // F (인건비 + 임대료 + 관리비 + 감가상각 + 대표인건비, 만원)
-  
+  utilityAndOtherFixedCost: number; // 공과금 + 광고비 + 기타 고정비 (만원)
+  totalFixedCost: number; // F (인건비 + 임대료 + 관리비 + 공과금·기타 + 감가상각 + 대표인건비, 만원)
+
   monthlyOperatingProfit: number; // 월 영업이익 (S - S*v - F, 만원)
+  monthlyCashFlow: number; // 월 영업현금흐름 (영업이익 + 감가상각, 만원)
   operatingProfitMargin: number; // 영업이익률 (영업이익 / S)
-  
+
   breakEvenRevenue: number; // 손익분기 매출 (F / (1 - v), 만원)
   marginOfSafety: number; // 안전여유율 ((S - BEP) / S)
   rentBurdenRate: number; // 임대료 부담률 ((임대료 + 관리비) / S)
-  
+
   brokerageFee: number; // 법정 중개보수 (만원)
-  initialInvestment: number; // 초기 투자금 (권리금 + 인테리어 + 설비 + 중개보수, 만원)
-  totalCashRequired: number; // 총 필요자금 (초기투자금 + 보증금, 만원)
-  
-  paybackPeriodMonths: number; // 투자 회수기간 (초기투자 / (영업이익 + 감가상각), 개월)
+  initialInvestment: number; // 초기 투자금 (권리금 + 인테리어 + 설비 + 중개보수 + 기타초기비용, 만원)
+  totalCashRequired: number; // 총 필요자금 (초기투자금 + 보증금 + 운전자금, 만원)
+
+  paybackPeriodMonths: number; // 기본 투자 회수기간 (초기투자 / (영업이익 + 감가상각), 개월)
+  totalPaybackPeriodMonths: number; // 보증금·운전자금 포함 총 필요현금 회수기간 (개월)
   annualRoi: number; // 연 투자수익률 (월영업이익 * 12 / 초기투자)
+
+  areaPyeong: number; // 전용 평수
+  rentPerPyeong: number; // 평당 월 임대+관리비 (만원)
+  annualRentTotal: number; // 연간 임대료+관리비 합계 (만원)
 }
 
 export interface ScoreBreakdown {
@@ -178,6 +214,17 @@ export interface DecisionVerdict {
   borderClass: string;
   summary: string;
   rationale: string[];
+}
+
+export interface AnalysisHistoryRecord {
+  id: string;
+  savedAt: string;
+  candidate: CandidateLocation;
+  totalScore: number;
+  verdictCode: DecisionVerdictCode;
+  verdictTitle: string;
+  monthlyRevenue: number;
+  monthlyOperatingProfit: number;
 }
 
 export type StepId =

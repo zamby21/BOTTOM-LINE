@@ -13,6 +13,8 @@ import {
   Users,
   Building,
   Briefcase,
+  BarChart3,
+  History,
 } from 'lucide-react';
 
 interface S1StartProps {
@@ -20,6 +22,9 @@ interface S1StartProps {
   onSelectCandidate: (id: string) => void;
   onGoToStep: (stepId: any) => void;
   onAddNew: () => void;
+  onOpenRegionMarket?: () => void;
+  onOpenHistory?: () => void;
+  historyCount?: number;
 }
 
 export const S1Start: React.FC<S1StartProps> = ({
@@ -27,6 +32,9 @@ export const S1Start: React.FC<S1StartProps> = ({
   onSelectCandidate,
   onGoToStep,
   onAddNew,
+  onOpenRegionMarket,
+  onOpenHistory,
+  historyCount = 0,
 }) => {
   return (
     <div className="space-y-8 max-w-5xl mx-auto pb-12">
@@ -70,6 +78,26 @@ export const S1Start: React.FC<S1StartProps> = ({
               <Scale className="w-4 h-4 text-amber-300" />
               후보지 3곳 순위 역전 비교 보기
             </button>
+            {onOpenRegionMarket && (
+              <button
+                type="button"
+                onClick={onOpenRegionMarket}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-sm border border-white/20 transition-colors"
+              >
+                <BarChart3 className="w-4 h-4 text-purple-300" />
+                지역·상권 데이터 허브
+              </button>
+            )}
+            {onOpenHistory && (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="inline-flex items-center gap-2 px-4 py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-sm border border-white/20 transition-colors tabular-nums"
+              >
+                <History className="w-4 h-4 text-teal-300" />
+                분석 이력 ({historyCount})
+              </button>
+            )}
           </div>
         </div>
       </div>

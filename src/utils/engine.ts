@@ -7,6 +7,7 @@ import {
   ScoreBreakdown,
   DecisionVerdict,
   RegionConversionType,
+  DueDiligenceItem,
 } from '../types/decision';
 
 // 상가임대차보호법 지역별 환산보증금 기준 (만원 단위)
@@ -29,6 +30,51 @@ export const BUSINESS_REQUIRED_BUILDING_USE: Record<string, string> = {
   entertainment: '컴퓨터게임제공업·노래연습장 (제2종 근린생활시설)',
   fitness: '체력단련장 (제2종 근린생활시설 또는 운동시설)',
 };
+
+export const DEFAULT_DUE_DILIGENCE_ITEMS: Omit<DueDiligenceItem, 'status' | 'sourceNote' | 'memo'>[] = [
+  {
+    key: 'building',
+    label: '건축물 용도·위반 여부',
+    description: '건축물대장 원본(표제부·전유부)의 용도와 위반건축물 표기, 업종 적합성을 확인합니다.',
+  },
+  {
+    key: 'zoning',
+    label: '토지이용계획·입지 제한',
+    description: '토지이용계획확인서(토지e음)와 해당 지자체 도시계획조례상 입지 제한을 확인합니다.',
+  },
+  {
+    key: 'permit',
+    label: '업종 인허가·소방·위생·정화구역',
+    description: '관할 구청 위생·건축과, 소방서 완비증명, 교육환경보호구역(GIS) 심의 여부를 확인합니다.',
+  },
+  {
+    key: 'facility',
+    label: '층수·면적·설비 조건',
+    description: '실제 사용 호실의 전용면적, 승강기·주차, 전력용량·급배수·덕트·정화조 용량을 확인합니다.',
+  },
+  {
+    key: 'lease',
+    label: '임대차·보증금·권리관계',
+    description: '등기사항전부증명서(근저당/압류), 임대인 권한, 환산보증금, 특약사항을 확인합니다.',
+  },
+];
+
+export function getCandidateDueDiligence(candidate: CandidateLocation): DueDiligenceItem[] {
+  const existingMap = new Map(
+    (candidate.dueDiligence || []).map((item) => [item.key, item])
+  );
+  return DEFAULT_DUE_DILIGENCE_ITEMS.map((base) => {
+    const existing = existingMap.get(base.key);
+    return {
+      key: base.key,
+      label: base.label,
+      description: base.description,
+      status: existing?.status || 'unverified',
+      sourceNote: existing?.sourceNote || '',
+      memo: existing?.memo || '',
+    };
+  });
+}
 
 /**
  * 01 TOP-LINE & 02 BOTTOM-LINE 재무 지표 계산 함수
@@ -54,52 +100,60 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
   const monthlyStaffLaborWon = candidate.fullTimeStaff * (candidate.hourlyWage || 10030) * 209 * socialIns;
   const laborCost = monthlyStaffLaborWon / 10000; // 만원 단위
 
-  // 4. 감가상각비
-  // (인테리어 + 설비·집기) ÷ 60개월
+  // 4. 감가상각비 (인테리어 + 설비·집기) ÷ 배분기간
   const depreciationMonths = candidate.depreciationMonths || 60;
   const totalCapex = (candidate.interiorCost || 0) + (candidate.equipmentCost || 0);
   const monthlyDepreciation = totalCapex > 0 ? totalCapex / depreciationMonths : 0;
 
-  // 5. 임대료 + 관리비
+  // 5. 임대료 + 관리비 & 추가 고정비 (공과금, 광고비, 기타 고정비)
   const monthlyRentAndMaintenance = (candidate.monthlyRent || 0) + (candidate.maintenanceFee || 0);
+  const utilityAndOtherFixedCost =
+    (candidate.utilityCost || 0) +
+    (candidate.marketingCost || 0) +
+    (candidate.otherFixedCost || 0);
 
   // 6. 고정비 F
-  // 인건비 + 임대료 + 관리비 + 감가상각 + 대표 인건비
-  const totalFixedCost = laborCost + monthlyRentAndMaintenance + monthlyDepreciation + (candidate.ownerSalary || 0);
+  const totalFixedCost =
+    laborCost +
+    monthlyRentAndMaintenance +
+    utilityAndOtherFixedCost +
+    monthlyDepreciation +
+    (candidate.ownerSalary || 0);
 
-  // 7. 월 영업이익
-  // S - S * v - F
+  // 7. 월 영업이익 & 현금흐름
   const monthlyOperatingProfit = monthlyRevenue - totalVariableCost - totalFixedCost;
+  const monthlyCashFlow = monthlyOperatingProfit + monthlyDepreciation;
   const operatingProfitMargin = monthlyRevenue > 0 ? monthlyOperatingProfit / monthlyRevenue : 0;
 
   // 8. 손익분기(BEP) 매출
-  // F ÷ (1 - v)
   const contributionMarginRate = 1 - variableCostRate;
   const breakEvenRevenue = contributionMarginRate > 0 ? totalFixedCost / contributionMarginRate : 0;
 
   // 9. 안전여유율
-  // (S - 손익분기 매출) ÷ S
   const marginOfSafety = monthlyRevenue > 0 ? (monthlyRevenue - breakEvenRevenue) / monthlyRevenue : 0;
 
   // 10. 임대료 부담률
-  // (임대료 + 관리비) ÷ S
   const rentBurdenRate = monthlyRevenue > 0 ? monthlyRentAndMaintenance / monthlyRevenue : 0;
 
-  // 11. 중개보수
-  // (보증금 + 월세 × 100) × 0.9% (합계가 5천만원 미만이면 월세 × 70으로 계산)
+  // 11. 중개보수 (상가 0.9% 상한)
   const baseRentSum = (candidate.deposit || 0) + (candidate.monthlyRent || 0) * 100;
   const effectiveBase = baseRentSum < 5000
     ? (candidate.deposit || 0) + (candidate.monthlyRent || 0) * 70
     : baseRentSum;
-  const brokerageFee = effectiveBase * 0.009; // 법정 상한 0.9%
+  const brokerageFee = effectiveBase * 0.009;
 
-  // 12. 초기 투자금
-  // 권리금 + 인테리어 + 설비·집기 + 중개보수 (보증금은 반환자산이므로 별도)
-  const initialInvestment = (candidate.premium || 0) + totalCapex + brokerageFee;
-  const totalCashRequired = initialInvestment + (candidate.deposit || 0);
+  // 12. 초기 투자금 & 총 필요자금
+  const initialInvestment =
+    (candidate.premium || 0) +
+    totalCapex +
+    brokerageFee +
+    (candidate.otherInitialCost || 0);
+  const totalCashRequired =
+    initialInvestment +
+    (candidate.deposit || 0) +
+    (candidate.workingCapital || 0);
 
-  // 13. 회수기간 (초기 투자 ÷ (월 영업이익 + 감가상각)) [현금흐름 기준]
-  const monthlyCashFlow = monthlyOperatingProfit + monthlyDepreciation;
+  // 13. 회수기간 (기본 순투자 회수 vs 보증금·운전자금 포함 총현금 회수)
   let paybackPeriodMonths = 999;
   if (monthlyCashFlow > 0 && initialInvestment > 0) {
     paybackPeriodMonths = initialInvestment / monthlyCashFlow;
@@ -107,9 +161,20 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     paybackPeriodMonths = 0;
   }
 
+  let totalPaybackPeriodMonths = 999;
+  if (monthlyCashFlow > 0 && totalCashRequired > 0) {
+    totalPaybackPeriodMonths = totalCashRequired / monthlyCashFlow;
+  } else if (totalCashRequired <= 0) {
+    totalPaybackPeriodMonths = 0;
+  }
+
   // 14. 연 투자수익률 (ROI)
-  // 월 영업이익 × 12 ÷ 초기 투자
   const annualRoi = initialInvestment > 0 ? (monthlyOperatingProfit * 12) / initialInvestment : 0;
+
+  // 15. 단위면적 지표
+  const areaPyeong = candidate.areaSqm > 0 ? candidate.areaSqm * 0.3025 : 0;
+  const rentPerPyeong = areaPyeong > 0 ? monthlyRentAndMaintenance / areaPyeong : 0;
+  const annualRentTotal = monthlyRentAndMaintenance * 12;
 
   return {
     monthlyRevenue,
@@ -118,8 +183,10 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     laborCost,
     monthlyDepreciation,
     monthlyRentAndMaintenance,
+    utilityAndOtherFixedCost,
     totalFixedCost,
     monthlyOperatingProfit,
+    monthlyCashFlow,
     operatingProfitMargin,
     breakEvenRevenue,
     marginOfSafety,
@@ -128,8 +195,172 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     initialInvestment,
     totalCashRequired,
     paybackPeriodMonths,
+    totalPaybackPeriodMonths,
     annualRoi,
+    areaPyeong,
+    rentPerPyeong,
+    annualRentTotal,
   };
+}
+
+export interface RevenueScenarioRow {
+  label: string;
+  deltaPercent: number;
+  grossRevenue: number;
+  monthlyRevenue: number;
+  monthlyOperatingProfit: number;
+  monthlyCashFlow: number;
+  operatingProfitMargin: number;
+  paybackPeriodMonths: number;
+}
+
+/**
+ * 매출 가정 변화에 따른 손익·회수기간 민감도 시뮬레이션 (PropScope 비교 시나리오 보완)
+ */
+export function simulateRevenueSensitivity(candidate: CandidateLocation): RevenueScenarioRow[] {
+  const scenarios = [
+    { label: '보수적 (-30%)', deltaPercent: -30 },
+    { label: '하락 (-15%)', deltaPercent: -15 },
+    { label: '현재 가정 (기준)', deltaPercent: 0 },
+    { label: '성장 (+15%)', deltaPercent: 15 },
+    { label: '호황 (+30%)', deltaPercent: 30 },
+  ];
+
+  return scenarios.map((sc) => {
+    const adjustedGross = Math.round(candidate.grossRevenue * (1 + sc.deltaPercent / 100));
+    const m = calculateFinancialMetrics({
+      ...candidate,
+      grossRevenue: adjustedGross,
+    });
+    return {
+      label: sc.label,
+      deltaPercent: sc.deltaPercent,
+      grossRevenue: adjustedGross,
+      monthlyRevenue: m.monthlyRevenue,
+      monthlyOperatingProfit: m.monthlyOperatingProfit,
+      monthlyCashFlow: m.monthlyCashFlow,
+      operatingProfitMargin: m.operatingProfitMargin,
+      paybackPeriodMonths: m.paybackPeriodMonths,
+    };
+  });
+}
+
+export interface SpecialContractClause {
+  id: string;
+  priority: '필수' | '권고';
+  category: string;
+  title: string;
+  clauseText: string;
+  reason: string;
+}
+
+/**
+ * 후보지 리스크 및 임대조건 기반 계약 시 필수 특약 자동 생성기
+ */
+export function generateSpecialContractClauses(
+  candidate: CandidateLocation,
+  riskEval: RiskEvaluation,
+  metrics: FinancialMetrics
+): SpecialContractClause[] {
+  const clauses: SpecialContractClause[] = [];
+
+  if (riskEval.r2.status === 'BLOCK' || candidate.hasViolation) {
+    clauses.push({
+      id: 'clause-r2',
+      priority: '필수',
+      category: '위반건축물 해소',
+      title: '위반건축물 시정 및 인허가 불발 시 계약 무효 특약',
+      clauseText:
+        '임대인은 잔금 지급일 전까지 건축물대장상 위반건축물 등재 사항을 적법하게 원상복구 및 말소 처리하기로 하며, 이를 이행하지 못하거나 관할 관청의 영업신고(허가)가 반려될 경우 본 계약은 별도의 위약금 없이 즉시 해지되고 임대인은 기지급 계약금 전액을 즉시 반환한다.',
+      reason: '위반건축물 등재 상태에서 계약 진행 시 영업신고 거부 및 이행강제금 분쟁 위험 차단',
+    });
+  }
+
+  if (riskEval.r1.status === 'CONDITIONAL' || riskEval.r1.status === 'RECOMMEND_CHECK') {
+    clauses.push({
+      id: 'clause-r1',
+      priority: '필수',
+      category: '건축물 용도변경',
+      title: '근린생활시설 용도변경 및 정화조 협조 특약',
+      clauseText: `본 점포의 건축물대장상 용도를 임차인의 영위 업종(${candidate.businessName})에 적합한 근린생활시설로 변경(기재변경 포함)하는 데 임대인은 제반 서류 제공 등 적극 협조하며, 용도변경 및 영업인허가 불허 시 본 계약은 위약금 없이 해제한다.`,
+      reason: `대장상 현재 용도(${candidate.buildingUse})와 희망 업종 간 인허가 불일치 리스크 해소`,
+    });
+  }
+
+  if (riskEval.r4.status === 'CONDITIONAL' || riskEval.r4.status === 'BLOCK') {
+    clauses.push({
+      id: 'clause-r4',
+      priority: '필수',
+      category: '교육환경보호구역',
+      title: '교육환경보호위원회 심의 통과 조건부 효력 특약',
+      clauseText:
+        '본 임대차 계약은 관할 교육지원청 교육환경보호위원회의 금지행위 및 시설 제외(해제) 심의 승인을 정지조건으로 하며, 심의 불승인 확정 시 임차인은 위약금 없이 계약을 해제하고 임대인은 수령한 계약금·보증금 전액을 지체 없이 반환한다.',
+      reason: '학교·유치원 상대보호구역 내 업종 제한 심의 부결 시 계약금 매몰 방지',
+    });
+  }
+
+  if (riskEval.r5.status === 'CONDITIONAL') {
+    clauses.push({
+      id: 'clause-r5',
+      priority: '필수',
+      category: '다중이용업소 소방',
+      title: '소방안전시설 완비증명서 발급 요건 확인 특약',
+      clauseText:
+        '임대인은 다중이용업소 안전시설등 완비증명서 발급에 필요한 건물 공용부 피난·방화시설(직통계단, 방화문, 주출입구 등) 유지에 협조하며, 건물 구조적 결함으로 소방 완비증명 발급이 불가한 경우 계약을 해제하고 보증금을 전액 반환한다.',
+      reason: `${candidate.floor}층 ${candidate.areaSqm}㎡ 규모 영업장의 다중이용업소법 적용 대비`,
+    });
+  }
+
+  if (riskEval.r6.status === 'CONDITIONAL') {
+    clauses.push({
+      id: 'clause-r6',
+      priority: '필수',
+      category: '환산보증금 초과 방어',
+      title: '임대료 증액 상한(연 5%) 약정 특약',
+      clauseText:
+        '본 계약은 상가건물 임대차보호법상 환산보증금 기준을 초과하나, 당사자 합의에 의해 계약 갱신 시 보증금 및 차임(월세) 인상률은 상가임대차보호법 시행령 기준(연 5% 이내)을 초과할 수 없기로 약정한다.',
+      reason: '환산보증금 초과로 배제되는 법정 차임증액 상한 보호장치를 당사자 약정으로 복원',
+    });
+  }
+
+  // 기본 핵심 특약 (렌트프리 / 원상복구 범위 / 시설권리)
+  if (metrics.rentBurdenRate > 0.14 || clauses.length < 3) {
+    clauses.push({
+      id: 'clause-rentfree',
+      priority: '권고',
+      category: '공사기간 렌트프리',
+      title: '인테리어 공사기간 차임 면제(Rent-Free) 특약',
+      clauseText:
+        '인테리어 및 설비 공사 기간(계약 개시일로부터 OO일간) 동안의 월 차임은 면제(관리비 실비만 정산)하며, 임대차 계약기간 기산일은 실제 영업 개시일 또는 공사 종료 익일로 정한다.',
+      reason: '초기 인테리어 공사 중 고정 임대료 지출을 절감하여 초기 자금 압박 완화',
+    });
+  }
+
+  if (clauses.length < 3) {
+    clauses.push({
+      id: 'clause-restoration',
+      priority: '권고',
+      category: '원상복구 범위 명확화',
+      title: '임대차 종료 시 원상복구 범위 특정 특약',
+      clauseText:
+        '계약 체결 당시의 현황 사진 및 시설 목록을 계약서에 첨부하며, 계약 종료 시 임차인의 원상복구 의무는 임차인이 신규 설치한 시설물에 한하며 현 상태(인수 당시 기존 시설물) 기준의 통상적 마모·노후는 원상복구 대상에서 제외한다.',
+      reason: '퇴거 시 과도한 철거 비용 청구 및 보증금 반환 지연 분쟁 예방',
+    });
+  }
+
+  if (clauses.length < 3) {
+    clauses.push({
+      id: 'clause-mortgage',
+      priority: '권고',
+      category: '권리관계 유지',
+      title: '잔금일 익일까지 권리변동 금지 및 등기 유지 특약',
+      clauseText:
+        '임대인은 계약일로부터 임차인의 사업자등록·확정일자 부여 및 점유 개시 다음 날까지 본 목적물에 추가 근저당권, 가압류 등 일체의 제한물권을 설정하지 않기로 하며, 위반 시 임차인은 즉시 계약을 해지하고 손해배상을 청구할 수 있다.',
+      reason: '잔금 납부 및 대항력 취득 공백기 동안 임대인의 추가 담보 설정 위험 차단',
+    });
+  }
+
+  return clauses;
 }
 
 /**
@@ -288,7 +519,6 @@ export function evaluateRiskRules(candidate: CandidateLocation): RiskEvaluation 
   };
 
   // R5: 다중이용업소
-  // 바닥면적이 100㎡ (지하층 66㎡) 이상인 음식점/휴게음식점/제과점 등
   let r5Status: RiskRuleResult['status'] = 'PASS';
   let r5StatusText = '통과: 다중이용업소 비해당';
   let r5Detail = '영업장 면적 기준 미만으로 다중이용업소 소방완비증명 대상에서 제외됩니다.';
@@ -299,7 +529,6 @@ export function evaluateRiskRules(candidate: CandidateLocation): RiskEvaluation 
   const isFloorAbove1 = candidate.floor > 1;
   const threshold = isBasement ? 66 : 100;
 
-  // 1층에 위치하고 지상과 직접 연결된 출입구가 있는 경우는 보통 완화되나, 2층 이상이거나 지하층이고 기준면적 초과시 다중이용업소 대상
   if (isHospitality && candidate.areaSqm >= threshold && (isBasement || isFloorAbove1)) {
     r5Status = 'CONDITIONAL';
     r5StatusText = '조건부: 다중이용업소 소방완비증명 대상';
@@ -323,7 +552,6 @@ export function evaluateRiskRules(candidate: CandidateLocation): RiskEvaluation 
   };
 
   // R6: 환산보증금
-  // 보증금 + 월세 × 100
   const convertedDeposit = (candidate.deposit || 0) + (candidate.monthlyRent || 0) * 100;
   const regionLimitInfo = CONVERSION_DEPOSIT_LIMITS[candidate.regionCode] || CONVERSION_DEPOSIT_LIMITS.seoul;
   const isDepositExceeded = convertedDeposit > regionLimitInfo.limit;
@@ -337,7 +565,7 @@ export function evaluateRiskRules(candidate: CandidateLocation): RiskEvaluation 
     r6Status = 'CONDITIONAL';
     r6StatusText = '주의: 환산보증금 초과 (일부 법조항 배제)';
     r6Detail = `환산보증금 ${convertedDeposit.toLocaleString()}만원으로 기준(${regionLimitInfo.limit.toLocaleString()}만원)을 초과합니다. 10년 계약갱신요구권은 인정되나, '재계약 시 월세 인상 5% 상한선' 및 '우선변제권'이 적용되지 않습니다.`;
-    r6Penalty = 5; // proposal says -5 penalty
+    r6Penalty = 5;
     hasConditionalRisk = true;
   }
 
@@ -377,7 +605,7 @@ export function calculateDecisionScore(
   metrics: FinancialMetrics,
   riskEval: RiskEvaluation
 ): { scoreBreakdown: ScoreBreakdown; verdict: DecisionVerdict } {
-  // 1. 수익성 (영업이익률): 35점 만점. 15% 이상 = 35점, 0% 이하 = 0점.
+  // 1. 수익성 (영업이익률): 35점 만점
   const margin = metrics.operatingProfitMargin;
   let profitScore = 0;
   if (margin >= 0.15) {
@@ -389,7 +617,7 @@ export function calculateDecisionScore(
   }
   profitScore = Math.round(profitScore * 10) / 10;
 
-  // 2. 회수기간 (초기 투자 회수기간): 20점 만점. 24개월 이하 = 20점, 84개월 이상 = 0점.
+  // 2. 회수기간 (초기 투자 회수기간): 20점 만점
   const payback = metrics.paybackPeriodMonths;
   let paybackScore = 0;
   if (payback <= 24) {
@@ -401,7 +629,7 @@ export function calculateDecisionScore(
   }
   paybackScore = Math.round(paybackScore * 10) / 10;
 
-  // 3. 안정성 (손익분기 대비 안전여유율): 20점 만점. 30% 이상 = 20점, 0% 이하 = 0점.
+  // 3. 안정성 (손익분기 대비 안전여유율): 20점 만점
   const safety = metrics.marginOfSafety;
   let safetyScore = 0;
   if (safety >= 0.30) {
@@ -413,7 +641,7 @@ export function calculateDecisionScore(
   }
   safetyScore = Math.round(safetyScore * 10) / 10;
 
-  // 4. 임대료 부담 ((임대료 + 관리비) ÷ 매출): 10점 만점. 10% 이하 = 10점, 25% 이상 = 0점.
+  // 4. 임대료 부담 ((임대료 + 관리비) ÷ 매출): 10점 만점
   const rentBurden = metrics.rentBurdenRate;
   let rentScore = 0;
   if (rentBurden <= 0.10) {
@@ -425,8 +653,7 @@ export function calculateDecisionScore(
   }
   rentScore = Math.round(rentScore * 10) / 10;
 
-  // 5. 규제·임대차: 15점 만점.
-  // 6개 룰의 감점 반영 (차단 룰 발생 시 0점)
+  // 5. 규제·임대차: 15점 만점
   let riskScore = 15;
   if (riskEval.hasBlockingRisk) {
     riskScore = 0;
@@ -448,10 +675,6 @@ export function calculateDecisionScore(
     totalScore,
   };
 
-  // 판정 규칙 (Page 3 of Proposal):
-  // • 진입: 70점 이상이고 차단·조건부 룰이 없을 때
-  // • 조건부 진입: 50~69점, 또는 조건부 룰이 있을 때 (점수가 높아도 최고 조건부)
-  // • 보류: 차단 룰이 하나라도 있거나 50점 미만일 때
   const rationale: string[] = [];
 
   let verdictCode: DecisionVerdict['code'] = 'GO';
@@ -506,7 +729,6 @@ export function calculateDecisionScore(
       rationale.push(`임대료 부담률 ${(metrics.rentBurdenRate * 100).toFixed(1)}%로 렌트프리(Rent-free) 또는 임대료 인하 협상 요망`);
     }
   } else {
-    // GO
     summary = `종합 점수 ${totalScore}점으로 탁월하며, 법률·행정 규제 저촉 사항이 없는 최상위 우량 입점 후보지입니다.`;
     rationale.push(`영업이익률 ${(metrics.operatingProfitMargin * 100).toFixed(1)}%로 안정적인 현금 흐름 창출`);
     rationale.push(`초기 투자금 약 ${metrics.paybackPeriodMonths.toFixed(1)}개월 내 신속 회수 가능`);

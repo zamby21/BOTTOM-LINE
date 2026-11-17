@@ -552,7 +552,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                       </span>
                     </div>
 
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 tabular-nums">
                       <span className="text-[10px] text-slate-400 block">임대료 부담률</span>
                       <strong className={`text-xs sm:text-sm font-bold ${
                         metrics.rentBurdenRate <= 0.12 ? 'text-emerald-700' : 'text-amber-700'
@@ -560,17 +560,22 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                         {(metrics.rentBurdenRate * 100).toFixed(1)}%
                       </strong>
                       <span className="text-[10px] text-slate-500 block">
-                        월 {metrics.monthlyRentAndMaintenance}만원
+                        월 {metrics.monthlyRentAndMaintenance}만 ({metrics.rentPerPyeong.toFixed(1)}만/평)
                       </span>
                     </div>
 
-                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
-                      <span className="text-[10px] text-slate-400 block">회수기간 (ROI)</span>
+                    <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 tabular-nums">
+                      <span className="text-[10px] text-slate-400 block">회수기간 (순투자 / 총현금)</span>
                       <strong className="text-slate-900 font-bold text-xs sm:text-sm">
                         {metrics.paybackPeriodMonths === 999 ? '불가' : `${metrics.paybackPeriodMonths.toFixed(1)}개월`}
+                        {metrics.totalPaybackPeriodMonths !== 999 && (
+                          <span className="text-[10px] font-normal text-slate-500">
+                            {' '}/ {metrics.totalPaybackPeriodMonths.toFixed(1)}m
+                          </span>
+                        )}
                       </strong>
                       <span className="text-[10px] text-slate-500 block">
-                        연 ROI {(metrics.annualRoi * 100).toFixed(1)}%
+                        총현금 {metrics.totalCashRequired.toLocaleString()}만 · ROI {(metrics.annualRoi * 100).toFixed(0)}%
                       </span>
                     </div>
                   </div>
@@ -769,17 +774,17 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                 {/* Rent Burden Rate */}
                 <tr className="hover:bg-slate-50/50">
                   <td className="p-3 sm:p-4 font-semibold text-slate-700">
-                    임대료 부담률 (월세+관리비)
+                    임대료 부담률 (평당 임차료)
                   </td>
                   {sortedByScore.map((item) => (
-                    <td key={item.candidate.id} className="p-3 sm:p-4 text-center text-xs">
+                    <td key={item.candidate.id} className="p-3 sm:p-4 text-center text-xs tabular-nums">
                       <div className={`font-bold ${
                         item.metrics.rentBurdenRate <= 0.12 ? 'text-emerald-700' : 'text-amber-700'
                       }`}>
                         {(item.metrics.rentBurdenRate * 100).toFixed(1)}%
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        월 {item.metrics.monthlyRentAndMaintenance}만원
+                        월 {item.metrics.monthlyRentAndMaintenance}만 ({item.metrics.rentPerPyeong.toFixed(1)}만/평)
                       </div>
                     </td>
                   ))}
@@ -788,15 +793,20 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                 {/* Initial Investment & Payback Period */}
                 <tr className="hover:bg-slate-50/50">
                   <td className="p-3 sm:p-4 font-semibold text-slate-700">
-                    초기투자금 및 회수기간
+                    초기투자·총현금 및 회수기간
                   </td>
                   {sortedByScore.map((item) => (
-                    <td key={item.candidate.id} className="p-3 sm:p-4 text-center text-xs">
+                    <td key={item.candidate.id} className="p-3 sm:p-4 text-center text-xs tabular-nums">
                       <div className="font-bold text-slate-900">
                         {item.metrics.paybackPeriodMonths === 999 ? '회수 불가' : `${item.metrics.paybackPeriodMonths.toFixed(1)}개월`}
+                        {item.metrics.totalPaybackPeriodMonths !== 999 && (
+                          <span className="text-[10px] font-normal text-slate-500">
+                            {' '}(총 {item.metrics.totalPaybackPeriodMonths.toFixed(1)}개월)
+                          </span>
+                        )}
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        투자 {item.metrics.initialInvestment.toLocaleString()}만 / 연 ROI {(item.metrics.annualRoi * 100).toFixed(0)}%
+                        순 {item.metrics.initialInvestment.toLocaleString()}만 / 총현금 {item.metrics.totalCashRequired.toLocaleString()}만
                       </div>
                     </td>
                   ))}

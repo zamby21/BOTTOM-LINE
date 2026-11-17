@@ -1,17 +1,15 @@
 import React, { useState } from 'react';
 import { CandidateLocation } from '../types/decision';
+import { INDUSTRY_BENCHMARKS } from '../data/presets';
 import {
   TrendingUp,
   Sparkles,
   CreditCard,
-  Clock,
-  Users,
-  CheckCircle2,
   ArrowRight,
-  HelpCircle,
   Loader2,
-  Plus,
-  Minus,
+  Calculator,
+  Users,
+  CalendarDays,
 } from 'lucide-react';
 
 interface S3TopLineProps {
@@ -30,11 +28,34 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
   const [isEstimating, setIsEstimating] = useState(false);
   const [estimateError, setEstimateError] = useState<string | null>(null);
 
+  const benchmark = INDUSTRY_BENCHMARKS[candidate.businessType];
+  const unitPrice = candidate.unitPrice ?? candidate.openupData?.avgTicket ?? benchmark?.openupAvgTicket ?? 12000;
+  const dailyCustomers = candidate.dailyCustomers ?? Math.max(20, Math.round(((candidate.grossRevenue || 3000) * 10000) / Math.max(unitPrice, 1000) / 28));
+  const operatingDays = candidate.operatingDaysPerMonth ?? 28;
+
   // 공급가액 환산
   const netRevenue = candidate.isVatIncluded
     ? Math.round(candidate.grossRevenue / 1.1)
     : candidate.grossRevenue;
   const vatAmount = candidate.grossRevenue - netRevenue;
+
+  // 필요 일평균 결제 건수 역산 (현 매출 기준)
+  const impliedDailyTx = unitPrice > 0 && operatingDays > 0
+    ? Math.round(((candidate.grossRevenue * 10000) / unitPrice) / operatingDays)
+    : 0;
+
+  // 객단가 × 고객수 × 영업일수 적용 핸들러
+  const applyUnitCalc = (nextPrice: number, nextCust: number, nextDays: number) => {
+    const calculatedManwon = Math.max(100, Math.round((nextPrice * nextCust * nextDays) / 10000));
+    onChange({
+      ...candidate,
+      revenueSource: 'unit_calc',
+      unitPrice: nextPrice,
+      dailyCustomers: nextCust,
+      operatingDaysPerMonth: nextDays,
+      grossRevenue: calculatedManwon,
+    });
+  };
 
   // AI 매출 추정 호출
   const handleAiEstimate = async () => {
@@ -56,11 +77,13 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
       if (json.success && json.data) {
         const est = json.data;
         const recommendedGross = est.recommendedRevenue || Math.round((est.minMonthlyRevenue + est.maxMonthlyRevenue) / 2);
-        
+
         onChange({
           ...candidate,
           grossRevenue: recommendedGross,
           revenueSource: 'ai_estimate',
+          unitPrice: est.averageOrderValue || unitPrice,
+          dailyCustomers: est.dailyTransactions || dailyCustomers,
           openupData: {
             storeName: `Gemini AI 상권 추정치 (${candidate.address})`,
             cardVolumeRatio: 94,
@@ -99,7 +122,7 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
             월 추정 매출액 산정 (Top-Line)
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            오픈업 카드매출 데이터 또는 Gemini AI 추정치로 부가세 제외 순공급가액을 산출합니다.
+            오픈업 조회값 입력, 객단가·고객수 계산기, 또는 Gemini AI 추정 중 원하는 방식으로 부가세 제외 순공급가액을 산출합니다.
           </p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
@@ -121,20 +144,20 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
         </div>
       </div>
 
-      {/* Revenue Source Selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {/* Source: OpenUp */}
+      {/* 3-Way Revenue Source Selector */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* Source 1: OpenUp */}
         <div
           onClick={() => onChange({ ...candidate, revenueSource: 'openup' })}
           className={`p-4 rounded-2xl border cursor-pointer transition-all ${
             candidate.revenueSource === 'openup'
-              ? 'bg-blue-50/50 border-blue-500 ring-2 ring-blue-500/20'
+              ? 'bg-blue-50/60 border-blue-500 ring-2 ring-blue-500/20'
               : 'bg-white border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-              추천: 오픈업 조회값
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold text-blue-700">
+              직접 입력 · 오픈업
             </span>
             <input
               type="radio"
@@ -143,25 +166,53 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
               className="text-blue-600 focus:ring-blue-500"
             />
           </div>
-          <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-            오픈업(핀다) 조회 카드매출 입력
+          <h3 className="font-bold text-slate-900 text-sm">
+            오픈업 조회 / 직접 입력
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            실제 신용카드 가맹점 결제 데이터 기반의 월 추정 결제금액을 직접 입력합니다.
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            오픈업(핀다) 등 신용카드 추정 결제금액이나 목표 월 매출을 직접 입력합니다.
           </p>
         </div>
 
-        {/* Source: AI Estimation */}
+        {/* Source 2: Unit Price * Customers Calculator (PropScope Addition) */}
+        <div
+          onClick={() => applyUnitCalc(unitPrice, dailyCustomers, operatingDays)}
+          className={`p-4 rounded-2xl border cursor-pointer transition-all ${
+            candidate.revenueSource === 'unit_calc'
+              ? 'bg-emerald-50/60 border-emerald-500 ring-2 ring-emerald-500/20'
+              : 'bg-white border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
+              <Calculator className="w-3 h-3" /> 객단가 × 고객수
+            </span>
+            <input
+              type="radio"
+              checked={candidate.revenueSource === 'unit_calc'}
+              onChange={() => applyUnitCalc(unitPrice, dailyCustomers, operatingDays)}
+              className="text-emerald-600 focus:ring-emerald-500"
+            />
+          </div>
+          <h3 className="font-bold text-slate-900 text-sm">
+            객단가 · 고객수 산출 계산기
+          </h3>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            평균 객단가와 일평균 방문 고객수, 월 영업일수를 곱해 현실적인 매출을 산출합니다.
+          </p>
+        </div>
+
+        {/* Source 3: AI Estimation */}
         <div
           onClick={() => onChange({ ...candidate, revenueSource: 'ai_estimate' })}
           className={`p-4 rounded-2xl border cursor-pointer transition-all ${
             candidate.revenueSource === 'ai_estimate'
-              ? 'bg-purple-50/50 border-purple-500 ring-2 ring-purple-500/20'
+              ? 'bg-purple-50/60 border-purple-500 ring-2 ring-purple-500/20'
               : 'bg-white border-slate-200 hover:border-slate-300'
           }`}
         >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-purple-100 text-purple-800 flex items-center gap-1">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold text-purple-700 flex items-center gap-1">
               <Sparkles className="w-3 h-3" /> AI 자동 추정
             </span>
             <input
@@ -171,14 +222,96 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
               className="text-purple-600 focus:ring-purple-500"
             />
           </div>
-          <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-            Gemini AI 상권 매출 자동 추정
+          <h3 className="font-bold text-slate-900 text-sm">
+            Gemini AI 상권 매출 추정
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            주소와 업종, 전용면적을 분석해 예상 월 매출 및 객단가를 자동 도출합니다.
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            주소, 업종, 전용면적, 층수를 분석해 예상 월 매출과 피크 시간대를 도출합니다.
           </p>
         </div>
       </div>
+
+      {/* Unit Price * Daily Customers Interactive Calculator Panel */}
+      {candidate.revenueSource === 'unit_calc' && (
+        <div className="bg-emerald-50/40 rounded-2xl p-4 sm:p-5 border border-emerald-200 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-emerald-200/60 pb-2.5">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-emerald-700" />
+              <h3 className="font-bold text-slate-900 text-sm sm:text-base">
+                객단가 × 예상 일 고객수 매출 계산기
+              </h3>
+            </div>
+            <span className="text-xs font-bold text-emerald-800 tabular-nums">
+              계산 결과: {Math.round((unitPrice * dailyCustomers * operatingDays) / 10000).toLocaleString()}만원/월
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                평균 객단가 (1건당 결제액)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="500"
+                  min="1000"
+                  value={unitPrice}
+                  onChange={(e) => applyUnitCalc(Math.max(1000, parseInt(e.target.value, 10) || 1000), dailyCustomers, operatingDays)}
+                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl bg-white font-bold tabular-nums pr-9 outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">원</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                업종 참고 객단가: {(benchmark?.openupAvgTicket || 12000).toLocaleString()}원
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <Users className="w-3.5 h-3.5 text-emerald-600" />
+                일평균 결제 건수 (팀/고객)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="5"
+                  min="1"
+                  value={dailyCustomers}
+                  onChange={(e) => applyUnitCalc(unitPrice, Math.max(1, parseInt(e.target.value, 10) || 1), operatingDays)}
+                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl bg-white font-bold tabular-nums pr-9 outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">건</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 tabular-nums">
+                일 매출 약 {Math.round((unitPrice * dailyCustomers) / 10000).toLocaleString()}만원
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+                월 영업일수
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  max="31"
+                  value={operatingDays}
+                  onChange={(e) => applyUnitCalc(unitPrice, dailyCustomers, Math.min(31, Math.max(1, parseInt(e.target.value, 10) || 26)))}
+                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl bg-white font-bold tabular-nums pr-9 outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">일</span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                주 6일 약 26일 / 무휴 약 30일
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Revenue Amount Input & Quick Touch Buttons */}
       <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-5">
@@ -259,7 +392,7 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
                   step="50"
                   value={candidate.grossRevenue}
                   onChange={(e) => onChange({ ...candidate, grossRevenue: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-4 py-3 text-lg font-black text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none pr-14"
+                  className="w-full px-4 py-3 text-lg font-black text-slate-900 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none pr-14 tabular-nums"
                 />
                 <span className="absolute right-4 top-3.5 text-sm font-bold text-slate-400">만원</span>
               </div>
@@ -308,7 +441,7 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
                 onChange={(e) => onChange({ ...candidate, grossRevenue: parseFloat(e.target.value) || 0 })}
                 className="w-full accent-blue-600 cursor-pointer h-2 bg-slate-200 rounded-lg"
               />
-              <div className="flex justify-between text-[10px] text-slate-400 mt-0.5">
+              <div className="flex justify-between text-[10px] text-slate-400 mt-0.5 tabular-nums">
                 <span>500만원</span>
                 <span>5,000만원</span>
                 <span>1억원</span>
@@ -319,14 +452,14 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
 
           {/* Revenue Breakdown Result Card (S) */}
           <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-3">
-            <div className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center justify-between">
+            <div className="text-xs font-bold text-blue-400 flex items-center justify-between">
               <span>01 Top-line 계산 결과</span>
-              <span className="text-[10px] px-2 py-0.5 bg-blue-500/20 rounded text-blue-300">
+              <span className="text-[11px] text-blue-300 font-semibold">
                 수익분석 출발값 (S)
               </span>
             </div>
 
-            <div className="space-y-1.5 border-b border-slate-800 pb-3">
+            <div className="space-y-1.5 border-b border-slate-800 pb-3 tabular-nums">
               <div className="flex justify-between text-xs text-slate-300">
                 <span>입력 결제액:</span>
                 <span className="font-semibold">{candidate.grossRevenue.toLocaleString()} 만원</span>
@@ -348,6 +481,11 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
               </div>
             </div>
 
+            <div className="text-[11px] text-slate-300 flex items-center justify-between bg-slate-800/70 px-3 py-2 rounded-lg tabular-nums">
+              <span>객단가 {unitPrice.toLocaleString()}원 · {operatingDays}일 영업 기준:</span>
+              <strong className="text-amber-300">일 약 {impliedDailyTx}건 결제 필요</strong>
+            </div>
+
             <p className="text-[11px] text-slate-400 leading-relaxed">
               * 다음 단계의 원가·수수료 차감 및 손익분기점(BEP) 계산은 법인/개인사업자 세무 기준에 맞춰 위 
               <strong className="text-white"> 공급가액({netRevenue.toLocaleString()}만원)</strong>을 기준으로 실행됩니다.
@@ -361,12 +499,12 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-slate-800 flex items-center gap-1.5">
                 <CreditCard className="w-4 h-4 text-blue-600" />
-                오픈업 상권 결제 패턴 데이터: {candidate.openupData.storeName}
+                상권 결제 패턴 참고 데이터: {candidate.openupData.storeName}
               </span>
-              <span className="text-[11px] text-slate-500 font-medium">카드 {candidate.openupData.cardVolumeRatio}%</span>
+              <span className="text-[11px] text-slate-500 font-medium tabular-nums">카드 비중 {candidate.openupData.cardVolumeRatio}%</span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs tabular-nums">
               <div className="bg-white p-2.5 rounded-xl border border-slate-200">
                 <span className="text-slate-400 block text-[10px]">평균 객단가</span>
                 <strong className="text-slate-900 font-bold text-xs sm:text-sm">

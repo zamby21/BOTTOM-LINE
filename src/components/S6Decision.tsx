@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { CandidateLocation, FinancialMetrics, RiskEvaluation, ScoreBreakdown, DecisionVerdict } from '../types/decision';
-import { calculateFinancialMetrics, evaluateRiskRules, calculateDecisionScore } from '../utils/engine';
+import { CandidateLocation, FinancialMetrics, RiskEvaluation } from '../types/decision';
 import confetti from 'canvas-confetti';
 import {
   Award,
@@ -18,7 +17,16 @@ import {
   Percent,
   Plus,
   Check,
+  BookmarkPlus,
+  ClipboardCheck,
 } from 'lucide-react';
+import {
+  calculateFinancialMetrics,
+  evaluateRiskRules,
+  calculateDecisionScore,
+  getCandidateDueDiligence,
+  simulateRevenueSensitivity,
+} from '../utils/engine';
 
 interface S6DecisionProps {
   candidate: CandidateLocation;
@@ -26,6 +34,7 @@ interface S6DecisionProps {
   onGoToCompare: () => void;
   onGoToRisk: () => void;
   onToggleCompare?: (candidateId: string) => void;
+  onSaveSnapshot?: () => void;
 }
 
 export const S6Decision: React.FC<S6DecisionProps> = ({
@@ -34,11 +43,16 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   onGoToCompare,
   onGoToRisk,
   onToggleCompare,
+  onSaveSnapshot,
 }) => {
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
   const metrics: FinancialMetrics = calculateFinancialMetrics(candidate);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
   const { scoreBreakdown, verdict } = calculateDecisionScore(metrics, riskEval);
+  const dueDiligenceItems = getCandidateDueDiligence(candidate);
+  const unverifiedCount = dueDiligenceItems.filter((d) => d.status === 'unverified').length;
+  const criticalCount = dueDiligenceItems.filter((d) => d.status === 'critical').length;
+  const sensitivityRows = simulateRevenueSensitivity(candidate);
 
   useEffect(() => {
     if (verdict.code === 'GO') {
@@ -62,11 +76,22 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
     }
   };
 
+  const handleSnapshotClick = () => {
+    if (onSaveSnapshot) {
+      onSaveSnapshot();
+      setToastMsg(`'${candidate.name}'의 현재 04 종합판정 결과가 분석 히스토리에 저장되었습니다.`);
+      setTimeout(() => setToastMsg(null), 3000);
+    }
+  };
+
   const waterfallSteps = [
     { label: '월 순매출 (S)', amount: Math.round(metrics.monthlyRevenue), type: 'base', color: 'bg-blue-600' },
     { label: '원가·변동비', amount: -Math.round(metrics.totalVariableCost), type: 'sub', color: 'bg-rose-500' },
     { label: '직원 인건비', amount: -Math.round(metrics.laborCost), type: 'sub', color: 'bg-amber-500' },
     { label: '임대료+관리비', amount: -Math.round(metrics.monthlyRentAndMaintenance), type: 'sub', color: 'bg-purple-500' },
+    ...(metrics.utilityAndOtherFixedCost > 0
+      ? [{ label: '공과금·광고·기타', amount: -Math.round(metrics.utilityAndOtherFixedCost), type: 'sub', color: 'bg-cyan-500' }]
+      : []),
     { label: '시설 감가상각', amount: -Math.round(metrics.monthlyDepreciation), type: 'sub', color: 'bg-slate-500' },
     { label: '대표 인건비', amount: -Math.round(candidate.ownerSalary), type: 'sub', color: 'bg-indigo-500' },
     {
@@ -118,6 +143,18 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
               </>
             )}
           </button>
+
+          {onSaveSnapshot && (
+            <button
+              type="button"
+              onClick={handleSnapshotClick}
+              className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+              title="현재 판정 결과를 히스토리에 저장"
+            >
+              <BookmarkPlus className="w-4 h-4 text-blue-600" />
+              <span>이력 저장</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -456,6 +493,61 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
             <div className="text-[10px] text-slate-500 truncate">
               {riskEval.hasBlockingRisk ? '차단 발생' : `감점 -${riskEval.totalPenalty}점`}
             </div>
+          </div>
+        </div>
+      </div>
+      {/* Due Diligence & Revenue Stress Check Summary (PropScope Enhancement) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={`p-4 sm:p-5 rounded-2xl border space-y-2.5 ${
+          criticalCount > 0
+            ? 'bg-rose-50/50 border-rose-300'
+            : unverifiedCount > 0 || !candidate.costChecked
+            ? 'bg-amber-50/50 border-amber-200'
+            : 'bg-emerald-50/50 border-emerald-200'
+        }`}>
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+              <ClipboardCheck className="w-4 h-4 text-blue-600" />
+              확인 근거 vs 입력 가정 점검
+            </h4>
+            <button
+              type="button"
+              onClick={onGoToRisk}
+              className="text-xs font-bold text-blue-700 hover:underline"
+            >
+              실사 기록장 보기 ➔
+            </button>
+          </div>
+          <p className="text-xs text-slate-700 leading-relaxed">
+            {criticalCount > 0
+              ? `실사 기록장에 '치명적 리스크'가 ${criticalCount}건 기록되어 있습니다. 해당 문제를 해결하기 전까지 계약을 보류하세요.`
+              : unverifiedCount > 0 || !candidate.costChecked
+              ? `5대 현장·서류 실사 항목 중 미확인 ${unverifiedCount}건이 남아있거나 비용 누락 자가점검이 완료되지 않았습니다. 현재 점수는 입력 가정 기반 잠정 판정입니다.`
+              : '5대 현장·서류 실사 항목과 비용 누락 점검이 모두 완료된 확정 판정 데이터입니다.'}
+          </p>
+        </div>
+
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 space-y-2.5 tabular-nums">
+          <h4 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+            <TrendingUp className="w-4 h-4 text-amber-500" />
+            매출 변동 스트레스 테스트 (-15% / 기준 / +15%)
+          </h4>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {[sensitivityRows[1], sensitivityRows[2], sensitivityRows[3]].map((row) => (
+              <div key={row.deltaPercent} className={`p-2 rounded-xl border text-center ${
+                row.deltaPercent === 0 ? 'bg-blue-50/60 border-blue-200' : 'bg-slate-50 border-slate-100'
+              }`}>
+                <span className="text-[10px] text-slate-500 block font-semibold">{row.label}</span>
+                <strong className={`text-xs sm:text-sm font-black block mt-0.5 ${
+                  row.monthlyOperatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                }`}>
+                  {row.monthlyOperatingProfit >= 0 ? '+' : ''}{Math.round(row.monthlyOperatingProfit).toLocaleString()}만
+                </strong>
+                <span className="text-[10px] text-slate-400">
+                  회수 {row.paybackPeriodMonths === 999 ? '불가' : `${row.paybackPeriodMonths.toFixed(0)}개월`}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
-import { CandidateLocation, FinancialMetrics, RiskEvaluation, ScoreBreakdown, DecisionVerdict } from '../types/decision';
-import { calculateFinancialMetrics, evaluateRiskRules, calculateDecisionScore } from '../utils/engine';
+import { CandidateLocation, FinancialMetrics, RiskEvaluation } from '../types/decision';
 import {
-  FileText,
+  calculateFinancialMetrics,
+  evaluateRiskRules,
+  calculateDecisionScore,
+  getCandidateDueDiligence,
+  generateSpecialContractClauses,
+} from '../utils/engine';
+import {
   Sparkles,
   Printer,
   Copy,
@@ -11,27 +16,34 @@ import {
   RefreshCw,
   Building2,
   ShieldCheck,
-  CheckCircle2,
   TrendingUp,
+  FileSignature,
+  ClipboardCheck,
+  BookmarkPlus,
 } from 'lucide-react';
 
 interface S8ReportProps {
   candidate: CandidateLocation;
   onUpdateCandidate: (updated: CandidateLocation) => void;
+  onSaveSnapshot?: () => void;
 }
 
 export const S8Report: React.FC<S8ReportProps> = ({
   candidate,
   onUpdateCandidate,
+  onSaveSnapshot,
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
+  const [savedNotice, setSavedNotice] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const metrics: FinancialMetrics = calculateFinancialMetrics(candidate);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
   const { scoreBreakdown, verdict } = calculateDecisionScore(metrics, riskEval);
+  const dueDiligenceItems = getCandidateDueDiligence(candidate);
+  const specialClauses = generateSpecialContractClauses(candidate, riskEval, metrics);
 
   const handleGenerateAiReport = async () => {
     setIsGenerating(true);
@@ -162,6 +174,21 @@ ${candidate.aiReport || verdict.summary}`;
             {shared ? '링크 복사됨' : '모바일 공유'}
           </button>
 
+          {onSaveSnapshot && (
+            <button
+              type="button"
+              onClick={() => {
+                onSaveSnapshot();
+                setSavedNotice(true);
+                setTimeout(() => setSavedNotice(false), 2000);
+              }}
+              className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all"
+            >
+              {savedNotice ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <BookmarkPlus className="w-3.5 h-3.5 text-blue-600" />}
+              {savedNotice ? '저장됨' : '이력 저장'}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handlePrint}
@@ -288,10 +315,11 @@ ${candidate.aiReport || verdict.summary}`;
             </div>
           </div>
 
-          <div className="p-2.5 bg-slate-50/70 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex flex-wrap justify-between gap-1.5">
+          <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-200 text-[11px] text-slate-600 flex flex-wrap justify-between gap-2 tabular-nums">
             <span>보증금: <strong>{candidate.deposit.toLocaleString()}만원</strong></span>
-            <span>월세+관리비: <strong>{metrics.monthlyRentAndMaintenance.toLocaleString()}만원</strong> (부담률 {(metrics.rentBurdenRate * 100).toFixed(1)}%)</span>
-            <span>초기 투자비: <strong>{Math.round(metrics.initialInvestment).toLocaleString()}만원</strong></span>
+            <span>월세+관리비: <strong>{metrics.monthlyRentAndMaintenance.toLocaleString()}만원</strong> (연 {metrics.annualRentTotal.toLocaleString()}만 · 평당 {metrics.rentPerPyeong.toFixed(1)}만)</span>
+            <span>순투자금: <strong>{Math.round(metrics.initialInvestment).toLocaleString()}만원</strong></span>
+            <span>총 필요현금: <strong>{Math.round(metrics.totalCashRequired).toLocaleString()}만원</strong></span>
           </div>
         </div>
 
@@ -349,12 +377,67 @@ ${candidate.aiReport || verdict.summary}`;
           </div>
         </div>
 
+        {/* 3. Due-Diligence Evidence & Special Clauses (PropScope Enhancement) */}
+        <div className="space-y-4">
+          <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-1.5 border-b border-slate-200 pb-2">
+            <ClipboardCheck className="w-4 h-4 text-blue-600" />
+            3. 실사 확인 근거 및 계약 시 필수 특약 ({specialClauses.length}선)
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+            {dueDiligenceItems.map((dd) => (
+              <div key={dd.key} className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900">{dd.label}</span>
+                  <span className={`font-bold text-[11px] ${
+                    dd.status === 'verified'
+                      ? 'text-emerald-700'
+                      : dd.status === 'critical'
+                      ? 'text-rose-600'
+                      : dd.status === 'conditional'
+                      ? 'text-amber-700'
+                      : 'text-slate-400'
+                  }`}>
+                    {dd.status === 'verified'
+                      ? '확인완료'
+                      : dd.status === 'critical'
+                      ? '치명적 리스크'
+                      : dd.status === 'conditional'
+                      ? '조건충족 필요'
+                      : '미확인'}
+                  </span>
+                </div>
+                {(dd.sourceNote || dd.memo) && (
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    {dd.sourceNote ? `[${dd.sourceNote}] ` : ''}{dd.memo}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+              <FileSignature className="w-4 h-4 text-indigo-600" />
+              권장 임대차 계약 특약 문구
+            </div>
+            {specialClauses.slice(0, 3).map((c, idx) => (
+              <div key={c.id} className="p-3 rounded-xl bg-indigo-50/40 border border-indigo-200/70 text-xs space-y-1">
+                <div className="font-bold text-slate-900">
+                  특약 {idx + 1}. [{c.priority}] {c.title}
+                </div>
+                <p className="text-slate-700 leading-relaxed">“{c.clauseText}”</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Gemini AI Expert Commentary Section */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between border-b border-slate-200 pb-2 flex-wrap gap-2">
             <h3 className="font-extrabold text-slate-900 text-sm sm:text-base flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-purple-600" />
-              3. Gemini AI 부동산 전문 자문 위원 심층 해설
+              4. Gemini AI 부동산 전문 자문 위원 심층 해설
             </h3>
             {candidate.aiReport && (
               <span className="text-[10px] text-slate-400">

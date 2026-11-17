@@ -812,6 +812,53 @@ export const S2Input: React.FC<S2InputProps> = ({
             </span>
           )}
         </div>
+
+        {/* Lease Cash Burden Summary (PropScope Enhancement) */}
+        {(() => {
+          const monthlyTotal = (candidate.monthlyRent || 0) + (candidate.maintenanceFee || 0);
+          const annualTotal = monthlyTotal * 12;
+          const areaPyeong = candidate.areaSqm > 0 ? candidate.areaSqm * 0.3025 : 0;
+          const rentPerPyeong = areaPyeong > 0 ? monthlyTotal / areaPyeong : 0;
+          const initialLeaseCash = (candidate.deposit || 0) + (candidate.premium || 0);
+          return (
+            <div className="p-4 rounded-xl bg-slate-900 text-white space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-slate-200">
+                  입력 임대조건의 현금 부담 정리
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  부가세·공과금·영업비용 제외 단순 임차 부담 합계
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs tabular-nums">
+                <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
+                  <span className="text-[11px] text-slate-400 block">월 고정 임차료 (월세+관리비)</span>
+                  <strong className="text-base font-bold text-white mt-0.5 block">
+                    {monthlyTotal.toLocaleString()}만원
+                  </strong>
+                </div>
+                <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
+                  <span className="text-[11px] text-slate-400 block">연간 월세·관리비 합계</span>
+                  <strong className="text-base font-bold text-amber-300 mt-0.5 block">
+                    {annualTotal.toLocaleString()}만원
+                  </strong>
+                </div>
+                <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
+                  <span className="text-[11px] text-slate-400 block">평당 임차료 ({areaPyeong.toFixed(1)}평 기준)</span>
+                  <strong className="text-base font-bold text-blue-300 mt-0.5 block">
+                    {rentPerPyeong.toFixed(1)}만원/평
+                  </strong>
+                </div>
+                <div className="bg-slate-800/80 p-3 rounded-lg border border-slate-700">
+                  <span className="text-[11px] text-slate-400 block">계약 시 보증금+권리금</span>
+                  <strong className="text-base font-bold text-emerald-300 mt-0.5 block">
+                    {initialLeaseCash.toLocaleString()}만원
+                  </strong>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

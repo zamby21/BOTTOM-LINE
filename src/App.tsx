@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CandidateLocation, StepId } from './types/decision';
+import { AnalysisHistoryRecord, CandidateLocation, StepId } from './types/decision';
 import { INITIAL_PRESET_CANDIDATES, INDUSTRY_BENCHMARKS } from './data/presets';
 import { calculateFinancialMetrics, evaluateRiskRules, calculateDecisionScore } from './utils/engine';
 import { Header } from './components/Header';
@@ -13,6 +13,8 @@ import { S5Risk } from './components/S5Risk';
 import { S6Decision } from './components/S6Decision';
 import { S7Compare } from './components/S7Compare';
 import { S8Report } from './components/S8Report';
+import { RegionMarketModal } from './components/RegionMarketModal';
+import { AnalysisHistoryModal } from './components/AnalysisHistoryModal';
 
 export default function App() {
   const [candidates, setCandidates] = useState<CandidateLocation[]>(() => {
@@ -32,6 +34,28 @@ export default function App() {
     INITIAL_PRESET_CANDIDATES[0].id
   );
   const [currentStep, setCurrentStep] = useState<StepId>('S1_START');
+
+  const [history, setHistory] = useState<AnalysisHistoryRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('bottomline_history');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      // ignore
+    }
+    return [];
+  });
+  const [isRegionModalOpen, setIsRegionModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  const persistHistory = (nextHistory: AnalysisHistoryRecord[]) => {
+    setHistory(nextHistory);
+    try {
+      localStorage.setItem('bottomline_history', JSON.stringify(nextHistory));
+    } catch (e) {}
+  };
 
   const updateCandidate = (updated: CandidateLocation) => {
     setCandidates((prev) => {
@@ -149,6 +173,51 @@ export default function App() {
   const { scoreBreakdown: activeScore, verdict: activeVerdict } =
     calculateDecisionScore(activeMetrics, activeRiskEval);
 
+  const handleSaveSnapshot = () => {
+    const snapshotCandidate: CandidateLocation = JSON.parse(JSON.stringify(activeCandidate));
+    const newRecord: AnalysisHistoryRecord = {
+      id: `hist-${Date.now()}`,
+      savedAt: new Date().toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      candidate: snapshotCandidate,
+      totalScore: activeScore.totalScore,
+      verdictCode: activeVerdict.code,
+      verdictTitle: activeVerdict.title,
+      monthlyRevenue: activeMetrics.monthlyRevenue,
+      monthlyOperatingProfit: activeMetrics.monthlyOperatingProfit,
+    };
+    persistHistory([newRecord, ...history].slice(0, 30));
+  };
+
+  const handleRestoreSnapshot = (record: AnalysisHistoryRecord) => {
+    const restored: CandidateLocation = JSON.parse(JSON.stringify(record.candidate));
+    setCandidates((prev) => {
+      const exists = prev.some((c) => c.id === restored.id);
+      const next = exists
+        ? prev.map((c) => (c.id === restored.id ? restored : c))
+        : [restored, ...prev];
+      try {
+        localStorage.setItem('bottomline_candidates', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+    setActiveCandidateId(restored.id);
+    setCurrentStep('S6_DECISION');
+  };
+
+  const handleDeleteHistoryRecord = (id: string) => {
+    persistHistory(history.filter((r) => r.id !== id));
+  };
+
+  const handleClearHistory = () => {
+    persistHistory([]);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
       {/* Top Fixed Header */}
@@ -160,6 +229,9 @@ export default function App() {
         onResetPresets={handleResetPresets}
         onOpenReport={() => setCurrentStep('S8_REPORT')}
         onOpenCompare={() => setCurrentStep('S7_COMPARE')}
+        onOpenRegionMarket={() => setIsRegionModalOpen(true)}
+        onOpenHistory={() => setIsHistoryModalOpen(true)}
+        historyCount={history.length}
       />
 
       {/* Step Bar Navigation (S1 ~ S8) with mobile progress */}
@@ -178,6 +250,9 @@ export default function App() {
             onSelectCandidate={(id) => setActiveCandidateId(id)}
             onGoToStep={(stepId) => setCurrentStep(stepId)}
             onAddNew={handleAddNewCandidate}
+            onOpenRegionMarket={() => setIsRegionModalOpen(true)}
+            onOpenHistory={() => setIsHistoryModalOpen(true)}
+            historyCount={history.length}
           />
         )}
 
@@ -210,6 +285,7 @@ export default function App() {
         {currentStep === 'S5_RISK' && (
           <S5Risk
             candidate={activeCandidate}
+            onChange={updateCandidate}
             onNext={() => setCurrentStep('S6_DECISION')}
             onPrev={() => setCurrentStep('S4_BOTTOMLINE')}
           />
@@ -222,6 +298,7 @@ export default function App() {
             onGoToCompare={() => setCurrentStep('S7_COMPARE')}
             onGoToRisk={() => setCurrentStep('S5_RISK')}
             onToggleCompare={handleToggleCompare}
+            onSaveSnapshot={handleSaveSnapshot}
           />
         )}
 
@@ -252,9 +329,27 @@ export default function App() {
           <S8Report
             candidate={activeCandidate}
             onUpdateCandidate={updateCandidate}
+            onSaveSnapshot={handleSaveSnapshot}
           />
         )}
       </main>
+
+      {/* Modals: Region/Commercial Market Hub & Analysis Snapshot History */}
+      <RegionMarketModal
+        isOpen={isRegionModalOpen}
+        onClose={() => setIsRegionModalOpen(false)}
+        candidate={activeCandidate}
+      />
+
+      <AnalysisHistoryModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        history={history}
+        onSaveCurrentSnapshot={handleSaveSnapshot}
+        onRestoreSnapshot={handleRestoreSnapshot}
+        onDeleteRecord={handleDeleteHistoryRecord}
+        onClearAll={handleClearHistory}
+      />
 
       {/* Floating Mobile Sticky Bottom Bar (Thumb-friendly Navigation) */}
       <MobileBottomBar
