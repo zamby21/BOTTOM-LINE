@@ -103,13 +103,12 @@ export const S2Input: React.FC<S2InputProps> = ({
     predictRegulationsLocally(candidate.address, candidate.floor, candidate.businessType)
   );
 
-  const handleOpenEeisGis = () => {
-    if (candidate.address) {
-      navigator.clipboard.writeText(candidate.address);
-      setGisCopyNotice(`후보지 주소("${candidate.address}")가 클립보드에 복사되었습니다! 열린 교육환경 GIS 지도 검색창에 붙여넣어(Ctrl+V) 즉시 조회하세요.`);
+  const handleCopyEeisAddress = () => {
+    if (candidate.address && navigator.clipboard) {
+      navigator.clipboard.writeText(candidate.address).catch(() => {});
+      setGisCopyNotice(`후보지 주소("${candidate.address}")가 클립보드에 복사되었습니다! 열린 교육환경 GIS(smart.schoolkeepa.or.kr) 검색창에 붙여넣어(Ctrl+V) 즉시 조회하세요.`);
       setTimeout(() => setGisCopyNotice(null), 5000);
     }
-    window.open(EEIS_GIS_URL, '_blank', 'noopener,noreferrer');
   };
 
   const handleBusinessTypeChange = (newCat: BusinessCategory) => {
@@ -559,16 +558,17 @@ export const S2Input: React.FC<S2InputProps> = ({
                   </span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleOpenEeisGis}
-                  disabled={!candidate.address}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white font-bold text-xs shadow-xs transition-all flex-shrink-0 cursor-pointer"
+                <a
+                  href={EEIS_GIS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleCopyEeisAddress}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-xs transition-all flex-shrink-0 cursor-pointer"
                 >
                   <Map className="w-3.5 h-3.5" />
                   교육환경 GIS 지도에서 주소 확인
                   <ExternalLink className="w-3 h-3" />
-                </button>
+                </a>
               </div>
 
               {gisCopyNotice && (

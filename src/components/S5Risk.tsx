@@ -283,7 +283,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-bold text-indigo-900">연동 주소 정화구역 GIS 지도 조회</span>
                     <span className="text-[10px] text-indigo-700 font-semibold">
-                      eeis.schoolkeepa.or.kr
+                      smart.schoolkeepa.or.kr
                     </span>
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">

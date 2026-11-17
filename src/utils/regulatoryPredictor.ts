@@ -18,7 +18,7 @@ export interface VerificationPortal {
   howToCheck: string;
 }
 
-export const EEIS_GIS_URL = 'https://eeis.schoolkeepa.or.kr/gis/gis.do';
+export const EEIS_GIS_URL = 'https://smart.schoolkeepa.or.kr';
 
 export const VERIFICATION_PORTALS: VerificationPortal[] = [
   {
@@ -37,7 +37,7 @@ export const VERIFICATION_PORTALS: VerificationPortal[] = [
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     url: EEIS_GIS_URL,
     description: '전국 초·중·고교 및 유치원의 50m(절대) / 200m(상대) 보호구역 반경 지도를 시각적으로 제공합니다.',
-    howToCheck: '지도에서 후보지 주소를 검색창에 붙여넣어(Ctrl+V) 조회하면 절대보호구역(50m, 적색)/상대보호구역(200m, 청색) 중첩 여부를 실시간으로 확인할 수 있습니다.',
+    howToCheck: 'smart.schoolkeepa.or.kr 지도에서 후보지 주소를 검색창에 붙여넣어(Ctrl+V) 조회하면 절대보호구역(50m, 적색)/상대보호구역(200m, 청색) 중첩 여부를 실시간으로 확인할 수 있습니다.',
   },
   {
     id: 'eum_land_use',
