@@ -12,7 +12,7 @@ import {
   generateSpecialContractClauses,
   getCandidateDueDiligence,
 } from '../utils/engine';
-import { EEIS_GIS_URL } from '../utils/regulatoryPredictor';
+import { EEIS_GIS_URL, copyTextToClipboard } from '../utils/regulatoryPredictor';
 import {
   ShieldAlert,
   ArrowRight,
@@ -296,7 +296,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
                       rel="noopener noreferrer"
                       onClick={() => {
                         if (candidate.address) {
-                          navigator.clipboard.writeText(candidate.address);
+                          copyTextToClipboard(candidate.address);
                           setGisCopied(true);
                           setTimeout(() => setGisCopied(false), 4000);
                         }

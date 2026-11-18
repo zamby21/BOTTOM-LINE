@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   CandidateLocation,
   BusinessCategory,
@@ -21,9 +21,25 @@ import {
   RegulatoryPrediction,
   EEIS_GIS_URL,
   checkBusinessTypeSchoolZoneStatus,
+  copyTextToClipboard,
 } from '../utils/regulatoryPredictor';
 import { AddressSearchModal, AddressSearchResult } from './AddressSearchModal';
 import { VerificationLinksCard } from './VerificationLinksCard';
+import {
+  KOREA_REGIONS,
+  searchKoreaRegions,
+  matchRegionFromAddressString,
+  RegionFlatMatch,
+} from '../data/koreaRegions';
+import {
+  TAX_INDUSTRY_TAXONOMY,
+  TAX_MAJOR_CATEGORIES,
+  getTaxMediumCategories,
+  getTaxSubCategories,
+  searchTaxIndustries,
+  findTaxIndustryForCandidate,
+  TaxIndustryItem,
+} from '../data/taxIndustryTaxonomy';
 import {
   MapPin,
   Building2,
@@ -47,6 +63,7 @@ import {
   Plus,
   Trash2,
   RefreshCw,
+  ChevronDown,
 } from 'lucide-react';
 
 interface S2InputProps {
@@ -54,18 +71,6 @@ interface S2InputProps {
   onChange: (updated: CandidateLocation) => void;
   onNext: () => void;
 }
-
-const BUSINESS_OPTIONS: { category: BusinessCategory; label: string }[] = [
-  { category: 'cafe', label: '카페·디저트' },
-  { category: 'restaurant', label: '일반음식점 (한식/일식/양식)' },
-  { category: 'pub', label: '주점·호프·이자카야' },
-  { category: 'snack', label: '분식·패스트푸드' },
-  { category: 'bakery', label: '제과·베이커리' },
-  { category: 'retail', label: '판매·소매점' },
-  { category: 'beauty', label: '미용·뷰티샵' },
-  { category: 'entertainment', label: '엔터테인먼트 (PC방/노래방)' },
-  { category: 'fitness', label: '피트니스·운동시설' },
-];
 
 const BUILDING_USES: BuildingUseType[] = [
   '제1종근린생활시설',
@@ -120,6 +125,9 @@ export const S2Input: React.FC<S2InputProps> = ({
     totalAreaSqm: number;
     approvalDate: string;
     hasViolation: boolean;
+    zoning?: ZoningType | null;
+    rawZoningName?: string;
+    jijiguZones?: string[];
   } | null>(null);
   const [apiUnits, setApiUnits] = useState<BuildingUnitOption[]>([]);
   const [unitStatusCode, setUnitStatusCode] = useState<string | null>(null);
@@ -130,6 +138,37 @@ export const S2Input: React.FC<S2InputProps> = ({
   const [manualFloor, setManualFloor] = useState(1);
   const [manualArea, setManualArea] = useState(49.5);
   const [manualUse, setManualUse] = useState<BuildingUseType>('제1종근린생활시설');
+  const [manualZoning, setManualZoning] = useState<ZoningType>(candidate.zoning);
+  const candidateRef = useRef<CandidateLocation>(candidate);
+  candidateRef.current = candidate;
+
+  // 위치 입력 방법 상태 (인라인 다음 주소 검색 + 시·도/시·군·구/읍·면·동/리 색인)
+  const [isInlinePostcodeOpen, setIsInlinePostcodeOpen] = useState(false);
+  const [inlineDaumLoaded, setInlineDaumLoaded] = useState(false);
+  const inlinePostcodeRef = useRef<HTMLDivElement>(null);
+  const [showRegionIndex, setShowRegionIndex] = useState(true);
+  const [showLocationAutocomplete, setShowLocationAutocomplete] = useState(false);
+  const [selectedSido, setSelectedSido] = useState<string>(() => matchRegionFromAddressString(candidate.address).sido);
+  const [selectedSigungu, setSelectedSigungu] = useState<string>(() => matchRegionFromAddressString(candidate.address).sigungu);
+  const [selectedDong, setSelectedDong] = useState<string>(() => matchRegionFromAddressString(candidate.address).dong);
+  const [selectedRi, setSelectedRi] = useState<string>(() => matchRegionFromAddressString(candidate.address).ri);
+
+  // 국세청 세무서 업종분류(대·중·소분류) 상태
+  const [industrySearchQuery, setIndustrySearchQuery] = useState('');
+  const [showIndustryAutocomplete, setShowIndustryAutocomplete] = useState(false);
+  const [showIndustryHierarchy, setShowIndustryHierarchy] = useState(true);
+  const initialTaxMatch = findTaxIndustryForCandidate(
+    candidate.businessName,
+    candidate.businessType,
+    candidate.taxIndustryCode
+  );
+  const [selectedTaxMajor, setSelectedTaxMajor] = useState<string>(
+    candidate.taxIndustryMajor || initialTaxMatch?.major || ''
+  );
+  const [selectedTaxMedium, setSelectedTaxMedium] = useState<string>(
+    candidate.taxIndustryMedium || initialTaxMatch?.medium || ''
+  );
+  const [selectedTaxItemId, setSelectedTaxItemId] = useState<string>(initialTaxMatch?.id || '');
 
   useEffect(() => {
     setBuildingTitle(null);
@@ -138,44 +177,131 @@ export const S2Input: React.FC<S2InputProps> = ({
     setUnitStatusMessage(null);
     setUnitFilter('');
     setShowManualUnitForm(false);
+    setIsInlinePostcodeOpen(false);
+    setShowLocationAutocomplete(false);
+    setIndustrySearchQuery('');
+    setShowIndustryAutocomplete(false);
     setLastAutoDetectedInfo(detectRegionFromAddress(candidate.address));
     setLastRegulatoryPrediction(
       predictRegulationsLocally(candidate.address, candidate.floor, candidate.businessType)
     );
+    const regionMatch = matchRegionFromAddressString(candidate.address);
+    setSelectedSido(regionMatch.sido);
+    setSelectedSigungu(regionMatch.sigungu);
+    setSelectedDong(regionMatch.dong);
+    setSelectedRi(regionMatch.ri);
+
+    const taxMatch = findTaxIndustryForCandidate(
+      candidate.businessName,
+      candidate.businessType,
+      candidate.taxIndustryCode
+    );
+    setSelectedTaxMajor(candidate.taxIndustryMajor || taxMatch?.major || '');
+    setSelectedTaxMedium(candidate.taxIndustryMedium || taxMatch?.medium || '');
+    setSelectedTaxItemId(taxMatch?.id || '');
   }, [candidate.id]);
 
+  // 인라인 다음(카카오) 우편번호 검색 임베드
+  useEffect(() => {
+    if (!isInlinePostcodeOpen) return;
+
+    const mountPostcode = () => {
+      if ((window as any).daum?.Postcode && inlinePostcodeRef.current) {
+        setInlineDaumLoaded(true);
+        inlinePostcodeRef.current.innerHTML = '';
+        new (window as any).daum.Postcode({
+          oncomplete: (data: any) => {
+            const roadAddr = data.roadAddress || data.autoRoadAddress || data.address;
+            const extraAddr = data.buildingName ? ` (${data.buildingName})` : '';
+            const fullAddress = `${roadAddr}${extraAddr}`;
+            handleSelectAddressResult({
+              fullAddress,
+              roadAddress: roadAddr,
+              jibunAddress: data.jibunAddress || data.autoJibunAddress || '',
+              buildingName: data.buildingName || '',
+              bname: data.bname || '',
+              sido: data.sido || '',
+              sigungu: data.sigungu || '',
+              bcode: data.bcode || '',
+              sigunguCode: data.sigunguCode || '',
+              buildingCode: data.buildingCode || '',
+            });
+            setIsInlinePostcodeOpen(false);
+          },
+          width: '100%',
+          height: '100%',
+        }).embed(inlinePostcodeRef.current);
+        return true;
+      }
+      return false;
+    };
+
+    const timer = setTimeout(() => {
+      if (!mountPostcode()) {
+        const scriptId = 'daum-postcode-script-loader';
+        const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+        if (!existing) {
+          const script = document.createElement('script');
+          script.id = scriptId;
+          script.src = '//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js';
+          script.onload = () => {
+            mountPostcode();
+          };
+          document.body.appendChild(script);
+        } else {
+          const prevOnload = existing.onload;
+          existing.onload = (ev) => {
+            if (typeof prevOnload === 'function') prevOnload.call(existing, ev);
+            mountPostcode();
+          };
+        }
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [isInlinePostcodeOpen]);
+
   const handleCopyEeisAddress = () => {
-    if (candidate.address && navigator.clipboard) {
-      navigator.clipboard.writeText(candidate.address).catch(() => {});
-      setGisCopyNotice(`후보지 주소("${candidate.address}")가 클립보드에 복사되었습니다! 열린 교육환경 GIS(smart.schoolkeepa.or.kr) 검색창에 붙여넣어(Ctrl+V) 즉시 조회하세요.`);
+    if (candidate.address) {
+      copyTextToClipboard(candidate.address);
+      setGisCopyNotice(`후보지 주소("${candidate.address}")가 클립보드에 복사되었습니다! 열린 교육환경보호구역 지도 검색창에 붙여넣어(Ctrl+V) 즉시 조회하세요.`);
       setTimeout(() => setGisCopyNotice(null), 5000);
     }
   };
 
-  const handleBusinessTypeChange = (newCat: BusinessCategory) => {
+  // 국세청 세무서 업종분류 소분류 선택 핸들러
+  const handleSelectTaxIndustryItem = (item: TaxIndustryItem) => {
+    const newCat = item.mappedCategory;
     const benchmark = INDUSTRY_BENCHMARKS[newCat];
     const regPred = predictRegulationsLocally(candidate.address, candidate.floor, newCat);
     setLastRegulatoryPrediction(regPred);
 
+    setSelectedTaxMajor(item.major);
+    setSelectedTaxMedium(item.medium);
+    setSelectedTaxItemId(item.id);
+    setIndustrySearchQuery('');
+    setShowIndustryAutocomplete(false);
+
     onChange({
       ...candidate,
       businessType: newCat,
-      businessName: benchmark.name,
-      costOfGoodsRate: benchmark.costOfGoodsRate,
-      cardRatio: benchmark.cardRatio,
-      deliveryRatio: benchmark.deliveryRatio,
-      deliveryFeeRate: benchmark.deliveryFeeRate,
-      fullTimeStaff: benchmark.standardStaffCount,
+      businessName: item.name,
+      taxIndustryCode: item.taxCode,
+      taxIndustryMajor: item.major,
+      taxIndustryMedium: item.medium,
+      costOfGoodsRate: item.benchmarkOverrides?.costOfGoodsRate ?? benchmark.costOfGoodsRate,
+      cardRatio: item.benchmarkOverrides?.cardRatio ?? benchmark.cardRatio,
+      deliveryRatio: item.benchmarkOverrides?.deliveryRatio ?? benchmark.deliveryRatio,
+      deliveryFeeRate: item.benchmarkOverrides?.deliveryFeeRate ?? benchmark.deliveryFeeRate,
+      fullTimeStaff: item.benchmarkOverrides?.standardStaffCount ?? benchmark.standardStaffCount,
       schoolZone: regPred.predictedSchoolZone,
       hasViolation: regPred.hasViolationSuspected ? true : candidate.hasViolation,
-      buildingUse: (newCat === 'restaurant' || newCat === 'pub')
-        ? '제2종근린생활시설'
-        : (newCat === 'cafe' ? '휴게음식점' : '제1종근린생활시설'),
+      buildingUse: item.recommendedBuildingUse,
     });
   };
 
   // 주소 변경 시 환산보증금 기준 및 교육환경구역/위반건축물 자동 감지 및 적용
-  const handleAddressChange = (newAddress: string) => {
+  const handleAddressChange = (newAddress: string, skipIndexSync = false) => {
     const detected = detectRegionFromAddress(newAddress);
     const regPred = predictRegulationsLocally(newAddress, candidate.floor, candidate.businessType);
 
@@ -186,6 +312,14 @@ export const S2Input: React.FC<S2InputProps> = ({
     setUnitStatusCode(null);
     setUnitStatusMessage(null);
 
+    if (!skipIndexSync) {
+      const matched = matchRegionFromAddressString(newAddress);
+      setSelectedSido(matched.sido);
+      setSelectedSigungu(matched.sigungu);
+      setSelectedDong(matched.dong);
+      setSelectedRi(matched.ri);
+    }
+
     onChange({
       ...candidate,
       address: newAddress,
@@ -195,6 +329,51 @@ export const S2Input: React.FC<S2InputProps> = ({
       parcelInfo: undefined,
       selectedUnitId: undefined,
     });
+  };
+
+  const applyRegionIndexSelection = (sido: string, sigungu: string, dong: string, ri: string) => {
+    const cleanSigungu = sigungu === '세종시 전체' ? '' : sigungu;
+    const combined = [sido, cleanSigungu, dong, ri].filter(Boolean).join(' ');
+    if (combined) {
+      handleAddressChange(combined, true);
+    }
+  };
+
+  const handleSelectSido = (newSido: string) => {
+    setSelectedSido(newSido);
+    setSelectedSigungu('');
+    setSelectedDong('');
+    setSelectedRi('');
+    if (newSido) {
+      applyRegionIndexSelection(newSido, '', '', '');
+    }
+  };
+
+  const handleSelectSigungu = (newSigungu: string) => {
+    setSelectedSigungu(newSigungu);
+    setSelectedDong('');
+    setSelectedRi('');
+    applyRegionIndexSelection(selectedSido, newSigungu, '', '');
+  };
+
+  const handleSelectDong = (newDong: string) => {
+    setSelectedDong(newDong);
+    setSelectedRi('');
+    applyRegionIndexSelection(selectedSido, selectedSigungu, newDong, '');
+  };
+
+  const handleSelectRi = (newRi: string) => {
+    setSelectedRi(newRi);
+    applyRegionIndexSelection(selectedSido, selectedSigungu, selectedDong, newRi);
+  };
+
+  const handlePickLocationAutocomplete = (match: RegionFlatMatch) => {
+    setSelectedSido(match.sido);
+    setSelectedSigungu(match.sigungu);
+    setSelectedDong(match.dong);
+    setSelectedRi(match.ri);
+    setShowLocationAutocomplete(false);
+    handleAddressChange(match.fullLabel, true);
   };
 
   const fetchBuildingRegisterUnits = async (
@@ -219,9 +398,28 @@ export const S2Input: React.FC<S2InputProps> = ({
       });
       const json = await response.json();
       if (json.success) {
-        setBuildingTitle(json.buildingTitle || null);
+        const titleData = json.buildingTitle || null;
+        setBuildingTitle(titleData);
         const fetchedUnits: BuildingUnitOption[] = Array.isArray(json.units) ? json.units : [];
         setApiUnits(fetchedUnits);
+
+        // Apply fetched zoning, jijiguZones & violation flag onto latest candidate snapshot
+        const latest = candidateRef.current;
+        const resolvedZoning = (titleData?.zoning as ZoningType | undefined) || latest.zoning;
+        const nextParcelInfo = {
+          ...(latest.parcelInfo || {}),
+          zoning: resolvedZoning,
+          jijiguZones: Array.isArray(titleData?.jijiguZones) ? titleData.jijiguZones : latest.parcelInfo?.jijiguZones,
+        };
+        if (titleData?.zoning || titleData?.hasViolation || nextParcelInfo.jijiguZones?.length) {
+          onChange({
+            ...latest,
+            zoning: resolvedZoning,
+            hasViolation: titleData?.hasViolation ? true : latest.hasViolation,
+            parcelInfo: nextParcelInfo,
+          });
+        }
+
         if (fetchedUnits.length === 0) {
           setUnitStatusCode('NO_UNITS');
           setUnitStatusMessage('해당 필지에 등록된 전유 호실/층별 데이터가 없습니다. 정부24에서 대장을 직접 확인하거나 아래에 호실을 등록하세요.');
@@ -263,6 +461,7 @@ export const S2Input: React.FC<S2InputProps> = ({
       areaSqm: unit.exclusiveAreaSqm,
       floor: unit.floorNumber,
       buildingUse: unit.mappedBuildingUse,
+      zoning: unit.zoning || buildingTitle?.zoning || candidate.zoning,
       selectedUnitId: unit.id,
       hasViolation: buildingTitle?.hasViolation ? true : candidate.hasViolation,
     });
@@ -280,6 +479,7 @@ export const S2Input: React.FC<S2InputProps> = ({
       exclusiveAreaSqm: manualArea > 0 ? manualArea : 33,
       mainPurpose: manualUse,
       mappedBuildingUse: manualUse,
+      zoning: manualZoning,
       source: 'manual',
     };
     const nextManualUnits = [...(candidate.manualUnits || []), newUnit];
@@ -293,6 +493,7 @@ export const S2Input: React.FC<S2InputProps> = ({
       areaSqm: newUnit.exclusiveAreaSqm,
       floor: newUnit.floorNumber,
       buildingUse: newUnit.mappedBuildingUse,
+      zoning: newUnit.zoning || candidate.zoning,
       selectedUnitId: newUnit.id,
     });
     setShowManualUnitForm(false);
@@ -315,6 +516,15 @@ export const S2Input: React.FC<S2InputProps> = ({
 
     setLastAutoDetectedInfo(detected);
     setLastRegulatoryPrediction(regPred);
+
+    const matched = matchRegionFromAddressString(chosenAddress);
+    if (matched.sido) {
+      setSelectedSido(matched.sido);
+      setSelectedSigungu(matched.sigungu);
+      setSelectedDong(matched.dong);
+      setSelectedRi(matched.ri);
+    }
+    setShowLocationAutocomplete(false);
 
     let updatedName = candidate.name;
     if (candidate.name.includes('신규 검토') || candidate.name.startsWith('후보지')) {
@@ -419,10 +629,10 @@ export const S2Input: React.FC<S2InputProps> = ({
             S2 후보지 기본 정보 & 임대 조건
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
-            후보지 매물 조건 입력
+            후보지 기본정보
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            주소를 입력하면 <strong>환산보증금 기준, 교육환경보호구역, 위반건축물 위험도</strong>가 자동 세팅되며, 공식 사이트 링크에서 직접 확인할 수 있습니다.
+            위치(주소 검색 또는 지역 색인)와 세무서 기준 업종을 지정하면 <strong>환산보증금 기준, 교육환경보호구역, 위반건축물 위험도</strong>가 자동 세팅됩니다.
           </p>
         </div>
         <button
@@ -435,13 +645,44 @@ export const S2Input: React.FC<S2InputProps> = ({
         </button>
       </div>
 
-      {/* 1. Basic Location & Category Card */}
+      {/* 1. 후보지 기본정보 (위치 및 세무서 기준 업종) */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
-        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
-          <Building2 className="w-4 h-4 text-blue-600" />
-          1. 매물 식별 및 업종
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-blue-600" />
+            1. 후보지 식별 · 위치(주소검색/색인) 및 세무서 기준 업종
+          </h3>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsAddressModalOpen(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3 h-3 text-amber-500" />
+              핵심상권 퀵선택
+            </button>
+            <button
+              type="button"
+              onClick={handleAiScreenAddress}
+              disabled={isAiScreening}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[11px] shadow-2xs transition-all disabled:opacity-50 cursor-pointer"
+            >
+              {isAiScreening ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  규제 AI 분석 중...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3 h-3 text-amber-300" />
+                  규제 AI 자동 스크리닝
+                </>
+              )}
+            </button>
+          </div>
+        </div>
 
+        {/* 후보지 식별 별칭 + 상세 호실 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -455,111 +696,374 @@ export const S2Input: React.FC<S2InputProps> = ({
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
             />
           </div>
-
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">
-              창업 입점 업종 선택
+              상세 호실 (층·호수)
             </label>
-            <select
-              value={candidate.businessType}
-              onChange={(e) => handleBusinessTypeChange(e.target.value as BusinessCategory)}
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white font-medium"
-            >
-              {BUSINESS_OPTIONS.map((opt) => (
-                <option key={opt.category} value={opt.category}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <div className="mt-1 text-[11px] text-blue-600 font-medium flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3" />
-              업종 권장 건축법상 용도: {BUSINESS_REQUIRED_BUILDING_USE[candidate.businessType]}
-            </div>
-          </div>
-
-          {/* Address Input with Daum/Kakao Postcode Address Finder */}
-          <div className="sm:col-span-2 space-y-2.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <label className="block text-xs font-bold text-slate-700">
-                소재지 주소 (도로명 / 지번)
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddressModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-2xs transition-all"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  주소 검색 (우편번호)
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAiScreenAddress}
-                  disabled={isAiScreening}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-2xs transition-all disabled:opacity-50"
-                >
-                  {isAiScreening ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      규제 AI 분석 중...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                      주소 기반 규제 AI 자동 스크리닝
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={candidate.address}
-                  onChange={(e) => handleAddressChange(e.target.value)}
-                  placeholder="주소 검색 버튼을 누르거나 도로명/지번을 입력하세요 (예: 서울특별시 성동구 연무장길 42)"
-                  className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-medium pr-10"
-                />
-                <MapPin className="w-4 h-4 text-slate-400 absolute right-3 top-3 pointer-events-none" />
-              </div>
-
-              <input
-                type="text"
-                value={candidate.detailAddress || ''}
-                onChange={(e) => onChange({ ...candidate, detailAddress: e.target.value })}
-                placeholder="상세 호실 (예: 지상 1층 101호)"
-                className="w-full sm:w-48 px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              />
-            </div>
-
-            {/* Auto-detected Region Feedback Alert */}
-            <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-xs text-blue-900 flex items-start gap-2.5">
-              <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div className="space-y-0.5 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-extrabold text-blue-950">
-                    주소 분석 기반 환산보증금 기준 자동 설정:
-                  </span>
-                  <span className="font-bold px-2 py-0.5 rounded bg-blue-600 text-white text-[11px]">
-                    {CONVERSION_DEPOSIT_LIMITS[candidate.regionCode].label}
-                  </span>
-                </div>
-                <p className="text-[11px] text-blue-700">
-                  {lastAutoDetectedInfo.explanation}
-                </p>
-              </div>
-            </div>
-
-            {screeningNotice && (
-              <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-xs text-purple-800 font-medium flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-purple-600" />
-                {screeningNotice}
-              </div>
-            )}
+            <input
+              type="text"
+              value={candidate.detailAddress || ''}
+              onChange={(e) => onChange({ ...candidate, detailAddress: e.target.value })}
+              placeholder="예: 지상 1층 101호 (하단 건축물대장 호실 선택 시 자동입력)"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
           </div>
         </div>
+
+        {/* 2-Column Location (주소검색 + 색인) & Tax Industry (대·중·소분류) */}
+        {(() => {
+          const locationMatches = showLocationAutocomplete ? searchKoreaRegions(candidate.address, 10) : [];
+          const currentSidoObj = KOREA_REGIONS.find((s) => s.name === selectedSido);
+          const sigunguList = currentSidoObj?.sigungus || [];
+          const currentSigunguObj = sigunguList.find((g) => g.name === selectedSigungu);
+          const dongList = currentSigunguObj?.dongs || [];
+          const currentDongObj = dongList.find((d) => d.name === selectedDong);
+          const riList = currentDongObj?.ri || [];
+
+          const industryMatches = showIndustryAutocomplete ? searchTaxIndustries(industrySearchQuery, 12) : [];
+          const mediumList = getTaxMediumCategories(selectedTaxMajor);
+          const subList = getTaxSubCategories(selectedTaxMajor, selectedTaxMedium);
+          const selectedTaxItem = TAX_INDUSTRY_TAXONOMY.find((i) => i.id === selectedTaxItemId);
+
+          return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+              {/* LEFT: 분석 지역 / 후보지 위치 (주소검색 또는 지역 색인) */}
+              <div className="space-y-2.5">
+                <label className="block text-xs font-bold text-slate-800">
+                  분석 지역 (후보지 위치) <span className="text-rose-500">*</span>
+                </label>
+
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={candidate.address}
+                      onFocus={() => setShowLocationAutocomplete(true)}
+                      onBlur={() => setTimeout(() => setShowLocationAutocomplete(false), 180)}
+                      onChange={(e) => {
+                        handleAddressChange(e.target.value);
+                        setShowLocationAutocomplete(true);
+                      }}
+                      placeholder="예: 성수동2가, 강남구, 부산 해운대구"
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white"
+                    />
+                    {locationMatches.length > 0 && (
+                      <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
+                        {locationMatches.map((m, i) => (
+                          <button
+                            key={`${m.fullLabel}-${i}`}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              handlePickLocationAutocomplete(m);
+                            }}
+                            className="w-full px-3 py-2 text-left text-xs hover:bg-emerald-50 flex items-center justify-between gap-2 cursor-pointer"
+                          >
+                            <span className="font-semibold text-slate-800">{m.fullLabel}</span>
+                            <span className="text-[10px] text-emerald-700 font-bold">색인 선택</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsInlinePostcodeOpen((prev) => !prev)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all whitespace-nowrap cursor-pointer ${
+                      isInlinePostcodeOpen
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-emerald-500 bg-white hover:bg-emerald-50 text-emerald-700'
+                    }`}
+                  >
+                    {isInlinePostcodeOpen ? '주소 검색 닫기' : '주소 검색 열기'}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                  <span>직접 입력하여 검색하거나 목록에서 선택하세요.</span>
+                  <span>주소 검색으로 자동 입력</span>
+                </div>
+
+                {/* Inline Embedded Kakao Postcode Box */}
+                {isInlinePostcodeOpen && (
+                  <div className="rounded-xl border border-slate-300 bg-white overflow-hidden shadow-xs">
+                    <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600 flex items-center justify-between">
+                      <span>도로명이나 지번을 검색하고 주소를 선택해주세요. (건축물대장 호실 자동 연동)</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsInlinePostcodeOpen(false)}
+                        className="text-slate-400 hover:text-slate-700 font-bold"
+                      >
+                        닫기
+                      </button>
+                    </div>
+                    <div className="relative w-full h-[380px]">
+                      <div ref={inlinePostcodeRef} className="w-full h-full" />
+                      {!inlineDaumLoaded && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-500 text-xs gap-2">
+                          <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                          <span>카카오 우편번호 검색창을 불러오는 중...</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 지역 목록에서 선택 (시·도 / 시·군·구 / 읍·면·동 / 리 색인) */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowRegionIndex((prev) => !prev)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer"
+                  >
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 transition-transform ${showRegionIndex ? '' : '-rotate-90'}`}
+                    />
+                    지역 목록에서 선택 (행정구역 색인)
+                  </button>
+
+                  {showRegionIndex && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <select
+                        value={selectedSido}
+                        onChange={(e) => handleSelectSido(e.target.value)}
+                        aria-label="시·도 선택"
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">시·도 선택</option>
+                        {KOREA_REGIONS.map((s) => (
+                          <option key={s.name} value={s.name}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={selectedSigungu}
+                        onChange={(e) => handleSelectSigungu(e.target.value)}
+                        disabled={!selectedSido}
+                        aria-label="시·군·구 선택"
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">시·군·구 선택</option>
+                        {sigunguList.map((g) => (
+                          <option key={g.name} value={g.name}>
+                            {g.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={selectedDong}
+                        onChange={(e) => handleSelectDong(e.target.value)}
+                        disabled={!selectedSigungu}
+                        aria-label="읍·면·동 선택"
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">{selectedSigungu ? '시·군·구 전체' : '읍·면·동 선택'}</option>
+                        {dongList.map((d) => (
+                          <option key={d.name} value={d.name}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={selectedRi}
+                        onChange={(e) => handleSelectRi(e.target.value)}
+                        disabled={riList.length === 0}
+                        aria-label="리 선택"
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">{riList.length > 0 ? '리 전체 선택' : '리 선택 없음'}</option>
+                        {riList.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* RIGHT: 업종 (세무서 업종분류 기준: 검색 + 대/중/소분류) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    업종 (세무서 업종분류 기준) <span className="text-rose-500">*</span>
+                  </label>
+                  {candidate.taxIndustryCode && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                      국세청 업종코드 {candidate.taxIndustryCode}
+                    </span>
+                  )}
+                </div>
+
+                {/* 업종 키워드 / 업종코드 직접 검색 */}
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={industrySearchQuery}
+                    onFocus={() => setShowIndustryAutocomplete(true)}
+                    onBlur={() => setTimeout(() => setShowIndustryAutocomplete(false), 180)}
+                    onChange={(e) => {
+                      setIndustrySearchQuery(e.target.value);
+                      setShowIndustryAutocomplete(true);
+                    }}
+                    placeholder="예: 카페, 한식, 국밥, 미용실, 편의점, 552301"
+                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+                  />
+                  {industryMatches.length > 0 && (
+                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto divide-y divide-slate-100">
+                      {industryMatches.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            handleSelectTaxIndustryItem(item);
+                          }}
+                          className="w-full px-3 py-2 text-left text-xs hover:bg-blue-50 flex items-center justify-between gap-2 cursor-pointer"
+                        >
+                          <div className="min-w-0">
+                            <div className="font-bold text-slate-900 truncate">{item.name}</div>
+                            <div className="text-[10px] text-slate-500">
+                              {item.major} &gt; {item.medium}
+                            </div>
+                          </div>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 flex-shrink-0">
+                            {item.taxCode}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-[11px] text-slate-500 px-0.5">
+                  직접 입력하여 검색하거나 목록에서 선택하세요. (세무서 사업자등록 업태·종목 기준)
+                </div>
+
+                {/* 업종 목록에서 선택 (대분류 → 중분류 → 세부 업종(소분류)) */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowIndustryHierarchy((prev) => !prev)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer"
+                  >
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 transition-transform ${showIndustryHierarchy ? '' : '-rotate-90'}`}
+                    />
+                    업종 목록에서 선택
+                  </button>
+
+                  {showIndustryHierarchy && (
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <select
+                          value={selectedTaxMajor}
+                          onChange={(e) => {
+                            setSelectedTaxMajor(e.target.value);
+                            setSelectedTaxMedium('');
+                            setSelectedTaxItemId('');
+                          }}
+                          aria-label="대분류 선택"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          <option value="">대분류 선택</option>
+                          {TAX_MAJOR_CATEGORIES.map((major) => (
+                            <option key={major} value={major}>
+                              {major}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={selectedTaxMedium}
+                          onChange={(e) => {
+                            setSelectedTaxMedium(e.target.value);
+                            setSelectedTaxItemId('');
+                          }}
+                          disabled={!selectedTaxMajor}
+                          aria-label="중분류 선택"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          <option value="">중분류 선택</option>
+                          {mediumList.map((med) => (
+                            <option key={med} value={med}>
+                              {med}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <select
+                        value={selectedTaxItemId}
+                        onChange={(e) => {
+                          const found = subList.find((item) => item.id === e.target.value);
+                          if (found) handleSelectTaxIndustryItem(found);
+                        }}
+                        disabled={!selectedTaxMedium}
+                        aria-label="실제 운영할 세부 업종 선택"
+                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">실제 운영할 세부 업종 선택</option>
+                        {subList.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} (코드 {item.taxCode})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-200/80 text-[11px] text-blue-900 space-y-0.5">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                    <span>
+                      선택 업종: {candidate.businessName}
+                      {selectedTaxItem ? ` (${selectedTaxItem.major} > ${selectedTaxItem.medium} · ${selectedTaxItem.taxCode})` : ''}
+                    </span>
+                  </div>
+                  <div className="text-blue-700 pl-5">
+                    권장 건축법상 용도:{' '}
+                    {selectedTaxItem?.buildingUseNote || BUSINESS_REQUIRED_BUILDING_USE[candidate.businessType]}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Auto-detected Region Feedback Alert */}
+        <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-xs text-blue-900 flex items-start gap-2.5">
+          <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div className="space-y-0.5 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-extrabold text-blue-950">
+                주소 분석 기반 환산보증금 기준 자동 설정:
+              </span>
+              <span className="font-bold px-2 py-0.5 rounded bg-blue-600 text-white text-[11px]">
+                {CONVERSION_DEPOSIT_LIMITS[candidate.regionCode].label}
+              </span>
+            </div>
+            <p className="text-[11px] text-blue-700">
+              {lastAutoDetectedInfo.explanation}
+            </p>
+          </div>
+        </div>
+
+        {screeningNotice && (
+          <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-xs text-purple-800 font-medium flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-purple-600" />
+            {screeningNotice}
+          </div>
+        )}
       </div>
 
       {/* 2. Building Space & Auto-Detected Regulatory Condition */}
@@ -593,7 +1097,7 @@ export const S2Input: React.FC<S2InputProps> = ({
                   <p className="text-[11px] text-slate-500 mt-0.5">
                     {candidate.parcelInfo?.jibunAddress
                       ? `연동 지번: ${candidate.parcelInfo.jibunAddress}`
-                      : '우편번호 검색으로 소재지를 선택하면 해당 건물의 호실(전용면적·층수·용도)을 불러와 선택할 수 있습니다.'}
+                      : '주소 검색 또는 지번 입력 후 [건축물대장 호실 불러오기]를 누르면 호실별 전용면적·층수·용도·용도지역이 자동 연동됩니다.'}
                   </p>
                 </div>
 
@@ -625,7 +1129,10 @@ export const S2Input: React.FC<S2InputProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setShowManualUnitForm(!showManualUnitForm)}
+                    onClick={() => {
+                      setManualZoning(candidate.zoning);
+                      setShowManualUnitForm(!showManualUnitForm);
+                    }}
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-all cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5 text-indigo-600" />
@@ -636,22 +1143,42 @@ export const S2Input: React.FC<S2InputProps> = ({
 
               {/* Building Title Summary from Official Register */}
               {buildingTitle && (
-                <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs flex flex-wrap items-center justify-between gap-2 tabular-nums">
-                  <div className="space-y-0.5">
-                    <div className="font-bold text-slate-900">
-                      {buildingTitle.buildingName || '표제부 건축물'} · {buildingTitle.regstrKind || '건축물대장'}
+                <div className="p-3.5 rounded-xl bg-white border border-slate-200 text-xs space-y-2 tabular-nums">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-slate-900">
+                        {buildingTitle.buildingName || '표제부 건축물'} · {buildingTitle.regstrKind || '건축물대장'}
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        주용도: {buildingTitle.mainPurpose || '-'} · 지하 {buildingTitle.undergroundFloors}층 / 지상 {buildingTitle.groundFloors}층 · 연면적 {buildingTitle.totalAreaSqm.toLocaleString()}㎡
+                        {buildingTitle.approvalDate ? ` · 사용승인 ${buildingTitle.approvalDate}` : ''}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500">
-                      주용도: {buildingTitle.mainPurpose || '-'} · 지하 {buildingTitle.undergroundFloors}층 / 지상 {buildingTitle.groundFloors}층 · 연면적 {buildingTitle.totalAreaSqm.toLocaleString()}㎡
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {(buildingTitle.zoning || buildingTitle.rawZoningName) && (
+                        <span className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                          용도지역: {buildingTitle.rawZoningName || buildingTitle.zoning}
+                        </span>
+                      )}
+                      <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
+                        buildingTitle.hasViolation
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}>
+                        {buildingTitle.hasViolation ? '위반건축물 표기 감지' : '대장상 위반 표기 없음'}
+                      </span>
                     </div>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold ${
-                    buildingTitle.hasViolation
-                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                  }`}>
-                    {buildingTitle.hasViolation ? '위반건축물 표기 감지' : '대장상 위반 표기 없음'}
-                  </span>
+                  {buildingTitle.jijiguZones && buildingTitle.jijiguZones.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 text-[10px]">
+                      <span className="font-bold text-slate-500">지역·지구·구역:</span>
+                      {buildingTitle.jijiguZones.map((z, idx) => (
+                        <span key={idx} className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
+                          {z}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -682,6 +1209,26 @@ export const S2Input: React.FC<S2InputProps> = ({
                       <ExternalLink className="w-3 h-3" />
                     </a>
                     <a
+                      href="https://www.eum.go.kr/web/am/amMain.jsp"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-emerald-600 hover:underline"
+                    >
+                      토지e음 용도지역 조회
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    {unitStatusCode === 'API_KEY_MISSING' && (
+                      <a
+                        href="https://www.data.go.kr/data/15134735/openapi.do"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-bold text-slate-600 hover:underline"
+                      >
+                        공공데이터포털 건축HUB API 신청
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                    <a
                       href="https://cloud.eais.go.kr"
                       target="_blank"
                       rel="noopener noreferrer"
@@ -700,7 +1247,7 @@ export const S2Input: React.FC<S2InputProps> = ({
                   <div className="font-bold text-slate-900">
                     정부24·세움터에서 확인한 호실 정보 추가 (비교 선택용)
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                     <div>
                       <label className="text-[11px] font-semibold text-slate-600 block mb-1">호실명</label>
                       <input
@@ -742,6 +1289,18 @@ export const S2Input: React.FC<S2InputProps> = ({
                         ))}
                       </select>
                     </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">용도지역</label>
+                      <select
+                        value={manualZoning}
+                        onChange={(e) => setManualZoning(e.target.value as ZoningType)}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white"
+                      >
+                        {ZONINGS.map((z) => (
+                          <option key={z} value={z}>{z}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   <div className="flex justify-end gap-2">
                     <button
@@ -767,7 +1326,7 @@ export const S2Input: React.FC<S2InputProps> = ({
                 <div className="space-y-2.5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <span className="text-[11px] font-bold text-slate-700">
-                      선택 가능한 호실 ({filteredUnits.length}개) — 클릭 시 상세호실·전용면적·층수·용도가 자동 입력됩니다
+                      선택 가능한 호실 ({filteredUnits.length}개) — 클릭 시 상세호실·전용면적·층수·용도·용도지역이 자동 입력됩니다
                     </span>
                     {combinedUnits.length > 6 && (
                       <input
@@ -809,7 +1368,8 @@ export const S2Input: React.FC<S2InputProps> = ({
                               {unit.commonAreaSqm ? ` · 공용 ${unit.commonAreaSqm}㎡` : ''}
                             </div>
                             <div className="text-[10px] text-slate-500 truncate">
-                              {unit.etcPurpose || unit.mainPurpose} ({unit.source === 'api' ? '대장연동' : '직접등록'})
+                              {unit.etcPurpose || unit.mainPurpose}
+                              {unit.zoning ? ` · ${unit.zoning}` : ''} ({unit.source === 'api' ? '대장연동' : '직접등록'})
                             </div>
                           </button>
 
@@ -1072,9 +1632,10 @@ export const S2Input: React.FC<S2InputProps> = ({
                   href={EEIS_GIS_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-0.5"
+                  onClick={handleCopyEeisAddress}
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
                 >
-                  GIS 시스템 직접열기
+                  GIS 시스템 직접열기 (주소 자동복사)
                   <ExternalLink className="w-2.5 h-2.5" />
                 </a>
               </div>

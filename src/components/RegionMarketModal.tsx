@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CandidateLocation } from '../types/decision';
 import { calculateFinancialMetrics } from '../utils/engine';
-import { EEIS_GIS_URL } from '../utils/regulatoryPredictor';
+import { EEIS_GIS_URL, copyTextToClipboard } from '../utils/regulatoryPredictor';
 import {
   X,
   BarChart3,
@@ -124,8 +124,8 @@ export const RegionMarketModal: React.FC<RegionMarketModalProps> = ({
   };
 
   const handleCopyPortalAddress = (portalName: string) => {
-    if (candidate.address && navigator.clipboard) {
-      navigator.clipboard.writeText(candidate.address).catch(() => {});
+    if (candidate.address) {
+      copyTextToClipboard(candidate.address);
       setCopiedNotice(`후보지 주소("${candidate.address}")를 클립보드에 복사했습니다. ${portalName}에서 붙여넣기(Ctrl+V)하세요.`);
       setTimeout(() => setCopiedNotice(null), 4500);
     }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { VERIFICATION_PORTALS } from '../utils/regulatoryPredictor';
+import { VERIFICATION_PORTALS, copyTextToClipboard } from '../utils/regulatoryPredictor';
 import {
   ExternalLink,
   Copy,
@@ -24,14 +24,14 @@ export const VerificationLinksCard: React.FC<VerificationLinksCardProps> = ({
 
   const handleCopyAddress = () => {
     if (!currentAddress) return;
-    navigator.clipboard.writeText(currentAddress);
+    copyTextToClipboard(currentAddress);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handlePortalClick = () => {
     if (currentAddress) {
-      navigator.clipboard.writeText(currentAddress);
+      copyTextToClipboard(currentAddress);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     }

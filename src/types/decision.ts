@@ -89,6 +89,9 @@ export interface CandidateLocation {
   regionCode: RegionConversionType;
   businessType: BusinessCategory;
   businessName: string; // 표시용 업종명
+  taxIndustryCode?: string; // 국세청 세무서 업종코드 (예: 552301)
+  taxIndustryMajor?: string; // 세무서 업종 대분류
+  taxIndustryMedium?: string; // 세무서 업종 중분류
   buildingUse: BuildingUseType;
   zoning: ZoningType;
   areaSqm: number; // 전용면적 (㎡)
@@ -175,6 +178,8 @@ export interface CandidateLocation {
     jibunAddress?: string;
     buildingCode?: string;
     buildingName?: string;
+    zoning?: ZoningType;
+    jijiguZones?: string[];
   };
   selectedUnitId?: string;
   manualUnits?: BuildingUnitOption[];
@@ -192,6 +197,7 @@ export interface BuildingUnitOption {
   mainPurpose: string;
   etcPurpose?: string;
   mappedBuildingUse: BuildingUseType;
+  zoning?: ZoningType;
   source: 'api' | 'manual';
 }
 

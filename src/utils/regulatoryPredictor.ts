@@ -18,7 +18,29 @@ export interface VerificationPortal {
   howToCheck: string;
 }
 
-export const EEIS_GIS_URL = 'https://smart.schoolkeepa.or.kr';
+export const EEIS_GIS_URL = 'https://smart.schoolkeepa.or.kr/eg/pages/main/main.do';
+
+export function copyTextToClipboard(text: string): boolean {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 export const VERIFICATION_PORTALS: VerificationPortal[] = [
   {
@@ -37,7 +59,7 @@ export const VERIFICATION_PORTALS: VerificationPortal[] = [
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     url: EEIS_GIS_URL,
     description: '전국 초·중·고교 및 유치원의 50m(절대) / 200m(상대) 보호구역 반경 지도를 시각적으로 제공합니다.',
-    howToCheck: 'smart.schoolkeepa.or.kr 지도에서 후보지 주소를 검색창에 붙여넣어(Ctrl+V) 조회하면 절대보호구역(50m, 적색)/상대보호구역(200m, 청색) 중첩 여부를 실시간으로 확인할 수 있습니다.',
+    howToCheck: 'smart.schoolkeepa.or.kr/eg/pages/main/main.do 지도에서 자동 복사된 후보지 주소를 붙여넣어(Ctrl+V) 조회하면 절대(50m)/상대(200m) 보호구역 중첩 여부를 확인할 수 있습니다.',
   },
   {
     id: 'eum_land_use',

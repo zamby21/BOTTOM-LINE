@@ -30,7 +30,7 @@ interface StepItem {
 
 export const STEPS: StepItem[] = [
   { id: 'S1_START', stageNum: 'S1', name: '시작', shortDesc: '개요·3대 질문', icon: Compass },
-  { id: 'S2_INPUT', stageNum: 'S2', name: '후보지 입력', shortDesc: '주소·업종·조건', icon: MapPin },
+  { id: 'S2_INPUT', stageNum: 'S2', name: '후보지 기본정보', shortDesc: '위치·업종·조건', icon: MapPin },
   { id: 'S3_TOPLINE', stageNum: '01 TOP-LINE', name: '매출 산정', shortDesc: '얼마나 팔릴까', icon: TrendingUp },
   { id: 'S4_BOTTOMLINE', stageNum: '02 BOTTOM-LINE', name: '비용 구조', shortDesc: '그래서 남는가', icon: Calculator },
   { id: 'S5_RISK', stageNum: '03 RISK', name: '리스크 점검', shortDesc: '해도 되는가', icon: ShieldAlert },

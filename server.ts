@@ -291,16 +291,90 @@ function parseJibunCodes(bcode?: string, jibunAddress?: string, fallbackAddress?
 
 function mapBuildingUseFromPurpose(mainPurps?: string, etcPurps?: string): string {
   const combined = `${mainPurps || ''} ${etcPurps || ''}`;
-  if (combined.includes('휴게음식점')) return '휴게음식점';
-  if (combined.includes('일반음식점')) return '일반음식점';
-  if (combined.includes('위락')) return '위락시설';
-  if (combined.includes('판매')) return '판매시설';
-  if (combined.includes('업무') || combined.includes('오피스텔')) return '업무시설';
-  if (combined.includes('제2종근린생활') || combined.includes('2종근린')) return '제2종근린생활시설';
-  if (combined.includes('제1종근린생활') || combined.includes('1종근린') || combined.includes('소매점')) {
+  if (combined.includes('휴게음식점') || combined.includes('카페') || combined.includes('커피') || combined.includes('제과')) {
+    return '휴게음식점';
+  }
+  if (combined.includes('일반음식점') || combined.includes('음식점') || combined.includes('식당')) {
+    return '일반음식점';
+  }
+  if (combined.includes('위락') || combined.includes('단란주점') || combined.includes('유흥주점')) {
+    return '위락시설';
+  }
+  if (combined.includes('판매') || combined.includes('상점')) {
+    return '판매시설';
+  }
+  if (combined.includes('업무') || combined.includes('오피스텔') || combined.includes('사무소')) {
+    return '업무시설';
+  }
+  if (combined.includes('제2종근린생활') || combined.includes('2종근린')) {
+    return '제2종근린생활시설';
+  }
+  if (
+    combined.includes('제1종근린생활') ||
+    combined.includes('1종근린') ||
+    combined.includes('소매점') ||
+    combined.includes('미용') ||
+    combined.includes('이용원') ||
+    combined.includes('의원')
+  ) {
+    return '제1종근린생활시설';
+  }
+  if (combined.includes('근린생활')) {
+    if (combined.includes('음식') || combined.includes('주점') || combined.includes('학원') || combined.includes('체력단련')) {
+      return '제2종근린생활시설';
+    }
     return '제1종근린생활시설';
   }
   return '기타';
+}
+
+function mapZoningFromJijiguItems(jijiguItems: any[]): {
+  zoning: string | null;
+  rawZoningName: string;
+  jijiguZones: string[];
+} {
+  const uniqueNames: string[] = [];
+  for (const item of jijiguItems) {
+    const cdNm = String(item.jijiguCdNm || '').trim();
+    if (cdNm && !uniqueNames.includes(cdNm)) {
+      uniqueNames.push(cdNm);
+    }
+  }
+
+  // Prioritize items explicitly categorized as 용도지역 or marked as reprYn === '1'
+  const sorted = [...jijiguItems].sort((a, b) => {
+    const aScore = (String(a.jijiguGbCdNm || '').includes('용도지역') ? 2 : 0) + (a.reprYn === '1' ? 1 : 0);
+    const bScore = (String(b.jijiguGbCdNm || '').includes('용도지역') ? 2 : 0) + (b.reprYn === '1' ? 1 : 0);
+    return bScore - aScore;
+  });
+
+  const matchToAppZoning = (name: string): string | null => {
+    const clean = name.replace(/\s+/g, '');
+    if (!clean) return null;
+    if (clean.includes('중심상업')) return '중심상업지역';
+    if (clean.includes('일반상업')) return '일반상업지역';
+    if (clean.includes('근린상업')) return '근린상업지역';
+    if (clean.includes('유통상업')) return '유통상업지역';
+    if (clean.includes('준주거')) return '준주거지역';
+    if (clean.includes('제1종일반주거') || clean.includes('1종일반주거')) return '제1종일반주거지역';
+    if (clean.includes('제2종일반주거') || clean.includes('2종일반주거')) return '제2종일반주거지역';
+    if (clean.includes('제3종일반주거') || clean.includes('3종일반주거')) return '제3종일반주거지역';
+    if (clean.includes('전용주거')) return '전용주거지역';
+    if (clean.includes('자연녹지') || clean.includes('녹지지역')) return '자연녹지지역';
+    if (clean.includes('상업지역')) return '일반상업지역';
+    if (clean.includes('일반주거지역')) return '제2종일반주거지역';
+    return null;
+  };
+
+  for (const row of sorted) {
+    const rawName = String(row.jijiguCdNm || '').trim();
+    const mapped = matchToAppZoning(rawName);
+    if (mapped) {
+      return { zoning: mapped, rawZoningName: rawName, jijiguZones: uniqueNames };
+    }
+  }
+
+  return { zoning: null, rawZoningName: '', jijiguZones: uniqueNames };
 }
 
 function parseFloorNumber(flrNo: unknown, flrGbCdNm?: string, flrNoNm?: string): number {
@@ -326,14 +400,111 @@ function normalizeDataGoKrItems(json: any): any[] {
   return Array.isArray(item) ? item : [item];
 }
 
-// Endpoint: Building Register Title & Units (호실) lookup via MOLIT BldRgstHubService
+function getEncodedKeyCandidates(rawKey: string): string[] {
+  const trimmed = rawKey.trim();
+  const candidates: string[] = [];
+  if (trimmed.includes('%')) {
+    candidates.push(trimmed);
+    try {
+      const decoded = decodeURIComponent(trimmed);
+      if (decoded !== trimmed) {
+        candidates.push(encodeURIComponent(decoded));
+      }
+    } catch {
+      // ignore malformed percent sequence
+    }
+  } else {
+    candidates.push(encodeURIComponent(trimmed));
+    candidates.push(trimmed);
+  }
+  return Array.from(new Set(candidates));
+}
+
+async function fetchDataGoKrJson(
+  fullUrlWithoutKey: string,
+  encodedKey: string
+): Promise<{ ok: boolean; json?: any; errorCode?: string; errorMessage?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const sep = fullUrlWithoutKey.includes('?') ? '&' : '?';
+    const res = await fetch(`${fullUrlWithoutKey}${sep}serviceKey=${encodedKey}`, {
+      signal: controller.signal,
+    });
+    const text = await res.text();
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        errorCode: `HTTP_${res.status}`,
+        errorMessage: `공공데이터포털 HTTP 오류 (${res.status})`,
+      };
+    }
+
+    // data.go.kr gateway returns XML on auth/service errors even when _type=json is requested
+    if (text.trim().startsWith('<')) {
+      const authMsgMatch = text.match(/<returnAuthMsg>([^<]+)<\/returnAuthMsg>/i);
+      const errMsgMatch = text.match(/<errMsg>([^<]+)<\/errMsg>/i);
+      const reasonCodeMatch = text.match(/<returnReasonCode>([^<]+)<\/returnReasonCode>/i);
+      const code = authMsgMatch?.[1] || reasonCodeMatch?.[1] || 'DATA_GO_KR_XML_ERROR';
+      const detail = errMsgMatch?.[1] || code;
+      return { ok: false, errorCode: code, errorMessage: detail };
+    }
+
+    const parsed = JSON.parse(text);
+    const resultCode = String(parsed?.response?.header?.resultCode ?? '00');
+    const resultMsg = String(parsed?.response?.header?.resultMsg ?? '');
+    if (resultCode !== '00') {
+      return {
+        ok: false,
+        errorCode: `RESULT_${resultCode}`,
+        errorMessage: resultMsg || `공공데이터 API 오류 코드 ${resultCode}`,
+      };
+    }
+    return { ok: true, json: parsed };
+  } catch (err: any) {
+    return {
+      ok: false,
+      errorCode: 'FETCH_ERROR',
+      errorMessage: err?.name === 'AbortError' ? '공공데이터 API 응답 시간 초과' : err?.message || '통신 오류',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function translateDataGoKrError(code?: string, detail?: string): string {
+  const c = String(code || '').toUpperCase();
+  if (c.includes('SERVICE_KEY_IS_NOT_REGISTERED')) {
+    return '등록되지 않았거나 해당 API(국토교통부_건축HUB_건축물대장정보 서비스)에 활용신청되지 않은 인증키입니다. 공공데이터포털 활용신청 상태와 Encoding/Decoding 키를 확인해주세요.';
+  }
+  if (c.includes('DEADLINE_HAS_EXPIRED')) {
+    return '공공데이터포털 인증키의 사용 기한이 만료되었습니다. 포털에서 재발급 후 업데이트해주세요.';
+  }
+  if (c.includes('LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS')) {
+    return '공공데이터포털 일일 호출 한도를 초과했습니다. 잠시 후 또는 익일 다시 시도해주세요.';
+  }
+  if (c.includes('SERVICE_ACCESS_DENIED') || c.includes('APPLICATION_ERROR')) {
+    return '건축물대장 API 서비스 접근이 거부되었습니다. 공공데이터포털 활용신청 승인 여부를 확인해주세요.';
+  }
+  return detail || '국토교통부 건축물대장 API 응답 오류가 발생했습니다.';
+}
+
+// Endpoint: Building Register Title, Units (호실), & Zoning (지역지구구역) lookup via MOLIT BldRgstHubService
 app.post('/api/building-register/units', async (req: Request, res: Response) => {
   try {
     const { address, jibunAddress, bcode } = req.body || {};
 
+    const apiKey =
+      process.env.DATA_GO_KR_API_KEY ||
+      process.env.PUBLIC_DATA_API_KEY ||
+      process.env.BUILDING_REGISTER_API_KEY ||
+      process.env.DATA_GO_KR_KEY ||
+      '';
+
     let parcel = parseJibunCodes(bcode, jibunAddress, address);
 
-    // Optional fallback: resolve PNU from road/jibun address via MOIS Juso API if JUSO_API_KEY is present
+    // Fallback 1: Resolve parcel via MOIS Juso Road-Name Address API if JUSO_API_KEY is configured
     if (!parcel && address && process.env.JUSO_API_KEY) {
       const jusoParams = new URLSearchParams({
         confmKey: process.env.JUSO_API_KEY,
@@ -358,55 +529,133 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
       }
     }
 
+    // Fallback 2: Resolve parcel via Kakao Local Address API if KAKAO_REST_API_KEY is configured
+    if (!parcel && address && process.env.KAKAO_REST_API_KEY) {
+      const cleanKeyword = String(address).split('(')[0].trim();
+      const kakaoRes = await fetch(
+        `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(cleanKeyword)}`,
+        { headers: { Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}` } }
+      );
+      if (kakaoRes.ok) {
+        const kakaoJson: any = await kakaoRes.json();
+        const doc = kakaoJson?.documents?.[0]?.address;
+        if (doc?.b_code && doc?.main_address_no) {
+          const cleanCode = String(doc.b_code).replace(/\D/g, '');
+          if (cleanCode.length >= 10) {
+            parcel = {
+              sigunguCd: cleanCode.slice(0, 5),
+              bjdongCd: cleanCode.slice(5, 10),
+              platGbCd: doc.mountain_yn === 'Y' ? '1' : '0',
+              bun: String(doc.main_address_no).padStart(4, '0'),
+              ji: String(doc.sub_address_no || '0').padStart(4, '0'),
+            };
+          }
+        }
+      }
+    }
+
+    // Fallback 3: If user typed a jibun address (e.g., "경기 용인시 수지구 죽전동 1328-3") and DATA_GO_KR_API_KEY is available,
+    // try resolving 10-digit bcode via MOIS StanReginCd API
+    if (!parcel && address && apiKey.trim()) {
+      const addrClean = String(address).split('(')[0].trim();
+      const jibunMatch = addrClean.match(/^(.+?)\s+(산\s*)?(\d{1,4})(?:-(\d{1,4}))?$/);
+      if (jibunMatch) {
+        const regionQuery = jibunMatch[1].trim();
+        const keyCandidate = getEncodedKeyCandidates(apiKey)[0];
+        const regRes = await fetchDataGoKrJson(
+          `https://apis.data.go.kr/1741000/StanReginCd/getStanReginCdList?pageNo=1&numOfRows=5&type=json&locatadd_nm=${encodeURIComponent(regionQuery)}`,
+          keyCandidate
+        );
+        const regItem = regRes.ok
+          ? (regRes.json?.StanReginCd?.[1]?.row?.[0] || normalizeDataGoKrItems(regRes.json)[0])
+          : null;
+        const regionCd = String(regItem?.region_cd || '').replace(/\D/g, '');
+        if (regionCd.length >= 10) {
+          parcel = {
+            sigunguCd: regionCd.slice(0, 5),
+            bjdongCd: regionCd.slice(5, 10),
+            platGbCd: jibunMatch[2] ? '1' : '0',
+            bun: jibunMatch[3].padStart(4, '0'),
+            ji: (jibunMatch[4] || '0').padStart(4, '0'),
+          };
+        }
+      }
+    }
+
     if (!parcel) {
       res.json({
         success: false,
         code: 'PARCEL_CODE_REQUIRED',
-        message: '정확한 필지 코드(법정동·지번) 확보를 위해 [주소 검색 (우편번호)] 버튼으로 주소를 선택해주세요.',
+        message: '정확한 필지 코드(법정동·지번) 확보를 위해 [주소 검색 열기]에서 주소를 선택하거나 "시·구·동 번지" 형식으로 입력해주세요.',
       });
       return;
     }
 
-    const apiKey = process.env.DATA_GO_KR_API_KEY;
     if (!apiKey || !apiKey.trim()) {
       res.json({
         success: false,
         code: 'API_KEY_MISSING',
         parcel,
-        message: '서버에 공공데이터포털 건축물대장 인증키(DATA_GO_KR_API_KEY)가 설정되어 있지 않습니다. 정부24·세움터에서 확인한 호실을 아래에서 직접 등록해 선택할 수 있습니다.',
+        message: '서버 환경변수(DATA_GO_KR_API_KEY)가 설정되지 않았습니다. 공공데이터포털에서 "국토교통부_건축HUB_건축물대장정보 서비스" 인증키를 발급받아 AI Studio Secrets에 DATA_GO_KR_API_KEY로 등록하면 호실·전용면적·층수·용도·용도지역이 자동 조회됩니다.',
       });
       return;
     }
 
-    const encodedKey = apiKey.includes('%') ? apiKey.trim() : encodeURIComponent(apiKey.trim());
-    const buildQuery = (rows: number) =>
-      `serviceKey=${encodedKey}&sigunguCd=${parcel!.sigunguCd}&bjdongCd=${parcel!.bjdongCd}&platGbCd=${parcel!.platGbCd}&bun=${parcel!.bun}&ji=${parcel!.ji}&numOfRows=${rows}&pageNo=1&_type=json`;
-
     const baseUrl = 'https://apis.data.go.kr/1613000/BldRgstHubService';
-    const [titleRes, exposRes, floorRes] = await Promise.all([
-      fetch(`${baseUrl}/getBrTitleInfo?${buildQuery(20)}`),
-      fetch(`${baseUrl}/getBrExposPubuseAreaInfo?${buildQuery(300)}`),
-      fetch(`${baseUrl}/getBrFlrOulnInfo?${buildQuery(100)}`),
-    ]);
+    const parcelParams = `sigunguCd=${parcel.sigunguCd}&bjdongCd=${parcel.bjdongCd}&platGbCd=${parcel.platGbCd}&bun=${parcel.bun}&ji=${parcel.ji}&_type=json`;
 
-    if (!titleRes.ok || !exposRes.ok) {
+    const keyCandidates = getEncodedKeyCandidates(apiKey);
+    let activeKey = keyCandidates[0];
+    let titleCall = await fetchDataGoKrJson(
+      `${baseUrl}/getBrTitleInfo?${parcelParams}&numOfRows=50&pageNo=1`,
+      activeKey
+    );
+
+    // Retry once with alternate key encoding if auth error occurred
+    if (
+      !titleCall.ok &&
+      keyCandidates.length > 1 &&
+      String(titleCall.errorCode || '').includes('SERVICE_KEY')
+    ) {
+      activeKey = keyCandidates[1];
+      titleCall = await fetchDataGoKrJson(
+        `${baseUrl}/getBrTitleInfo?${parcelParams}&numOfRows=50&pageNo=1`,
+        activeKey
+      );
+    }
+
+    if (!titleCall.ok) {
       res.status(502).json({
         success: false,
         code: 'UPSTREAM_ERROR',
-        message: '국토교통부 건축물대장 API 응답 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+        upstreamCode: titleCall.errorCode,
+        message: translateDataGoKrError(titleCall.errorCode, titleCall.errorMessage),
       });
       return;
     }
 
-    const [titleJson, exposJson, floorJson] = await Promise.all([
-      titleRes.json(),
-      exposRes.json(),
-      floorRes.ok ? floorRes.json() : Promise.resolve(null),
+    const [exposCall, floorCall, jijiguCall] = await Promise.all([
+      fetchDataGoKrJson(`${baseUrl}/getBrExposPubuseAreaInfo?${parcelParams}&numOfRows=1000&pageNo=1`, activeKey),
+      fetchDataGoKrJson(`${baseUrl}/getBrFlrOulnInfo?${parcelParams}&numOfRows=200&pageNo=1`, activeKey),
+      fetchDataGoKrJson(`${baseUrl}/getBrJijiguInfo?${parcelParams}&numOfRows=100&pageNo=1`, activeKey),
     ]);
 
-    const titles = normalizeDataGoKrItems(titleJson);
-    const exposItems = normalizeDataGoKrItems(exposJson);
-    const floorItems = floorJson ? normalizeDataGoKrItems(floorJson) : [];
+    const titles = normalizeDataGoKrItems(titleCall.json);
+    let exposItems = exposCall.ok ? normalizeDataGoKrItems(exposCall.json) : [];
+    const exposTotalCount = Number(exposCall.json?.response?.body?.totalCount || 0);
+    if (exposCall.ok && exposTotalCount > exposItems.length && exposItems.length >= 1000) {
+      const page2Call = await fetchDataGoKrJson(
+        `${baseUrl}/getBrExposPubuseAreaInfo?${parcelParams}&numOfRows=1000&pageNo=2`,
+        activeKey
+      );
+      if (page2Call.ok) {
+        exposItems = [...exposItems, ...normalizeDataGoKrItems(page2Call.json)];
+      }
+    }
+
+    const floorItems = floorCall.ok ? normalizeDataGoKrItems(floorCall.json) : [];
+    const jijiguItems = jijiguCall.ok ? normalizeDataGoKrItems(jijiguCall.json) : [];
+    const zoningInfo = mapZoningFromJijiguItems(jijiguItems);
 
     const primaryTitle = titles[0] || null;
     const buildingTitle = primaryTitle
@@ -426,6 +675,24 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
               String(t.vltnYn || '').toUpperCase() === 'Y' ||
               String(t.etcStrct || '').includes('위반')
           ),
+          zoning: zoningInfo.zoning,
+          rawZoningName: zoningInfo.rawZoningName,
+          jijiguZones: zoningInfo.jijiguZones,
+        }
+      : zoningInfo.zoning || zoningInfo.jijiguZones.length > 0
+      ? {
+          buildingName: '',
+          regstrKind: '',
+          mainPurpose: '',
+          etcPurpose: '',
+          groundFloors: 0,
+          undergroundFloors: 0,
+          totalAreaSqm: 0,
+          approvalDate: '',
+          hasViolation: false,
+          zoning: zoningInfo.zoning,
+          rawZoningName: zoningInfo.rawZoningName,
+          jijiguZones: zoningInfo.jijiguZones,
         }
       : null;
 
@@ -444,6 +711,7 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
         mainPurpose: string;
         etcPurpose: string;
         mappedBuildingUse: string;
+        zoning?: string;
         source: 'api';
       }
     >();
@@ -477,6 +745,7 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
           mainPurpose,
           etcPurpose,
           mappedBuildingUse: mapBuildingUseFromPurpose(mainPurpose, etcPurpose),
+          zoning: zoningInfo.zoning || undefined,
           source: 'api',
         });
       } else {
@@ -517,6 +786,7 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
             mainPurpose,
             etcPurpose,
             mappedBuildingUse: mapBuildingUseFromPurpose(mainPurpose, etcPurpose),
+            zoning: zoningInfo.zoning || undefined,
             source: 'api',
           };
         })
