@@ -272,6 +272,150 @@ app.post('/api/gemini/market-trends', async (req: Request, res: Response) => {
   }
 });
 
+// Endpoint: Google Search Grounded Nearby Commercial Lease Listing Lookup (Same building / within 30m)
+app.post('/api/gemini/search-nearby-listings', async (req: Request, res: Response) => {
+  try {
+    const { address, jibunAddress, buildingName, floor, areaSqm, businessName } = req.body || {};
+
+    if (!address || typeof address !== 'string' || !address.trim()) {
+      res.status(400).json({
+        success: false,
+        code: 'ADDRESS_REQUIRED',
+        error: '후보지 주소를 먼저 입력한 뒤 매물 사례를 검색해주세요.',
+      });
+      return;
+    }
+
+    if (!process.env.GEMINI_API_KEY || !process.env.GEMINI_API_KEY.trim()) {
+      res.status(503).json({
+        success: false,
+        code: 'API_KEY_MISSING',
+        error:
+          '서버에 GEMINI_API_KEY가 설정되어 있지 않아 자동 웹 검색을 실행할 수 없습니다. 아래 네이버 부동산·네모·직방 바로가기를 눌러 직접 매물을 확인해주세요.',
+      });
+      return;
+    }
+
+    const areaPyeong = typeof areaSqm === 'number' && areaSqm > 0 ? (areaSqm * 0.3025).toFixed(1) : '-';
+    const prompt = `
+당신은 대한민국 상업용 부동산 매물 리서치 전문가입니다.
+Google 검색을 통해 아래 후보지 건물 또는 반경 약 30m 이내(동일 도로변·인접 필지 상가)의 실제 공개 매물/임대 사례(네이버 부동산, 네모, 직방, 상가114, 지역 공인중개사 매물 안내 등)를 찾아 임차보증금, 월세(임대료), 관리비, 권리금 정보를 정리해주세요.
+
+### 조회 대상 정보:
+- 후보지 주소: ${address}
+${jibunAddress ? `- 지번 주소: ${jibunAddress}` : ''}
+${buildingName ? `- 건물명: ${buildingName}` : ''}
+- 검토 층/면적: ${floor ?? 1}층 / ${areaSqm ?? '-'}㎡ (약 ${areaPyeong}평)
+- 검토 업종: ${businessName || '상가/점포'}
+
+### 매우 중요한 원칙:
+1. 반드시 Google 검색 결과에서 실제로 확인된 매물·시세 정보만 기재하세요. 검색 결과에 없는 숫자(보증금·월세·관리비·권리금)를 임의로 추측하거나 가상 예시로 만들어내지 마세요.
+2. 개별 매물에서 권리금이나 관리비가 공개되어 있지 않다면 반드시 "미공개(중개사 확인 필요)"로 표기하세요.
+3. 동일 건물의 매물이 검색되지 않으면, 반경 30m 이내 인접 상가 건물 또는 동일 도로변·동(읍/면) 상가 임대 매물/시세 자료 중 실제로 검색된 사례만 구분(scopeLabel)을 명확히 적어 정리하세요.
+
+반드시 아래 JSON 형식만 순수 JSON(또는 \`\`\`json 코드블록)으로 출력하세요:
+{
+  "searchScopeNote": "검색된 매물 범위 및 확인 결과 요약 (1~2문장)",
+  "listings": [
+    {
+      "scopeLabel": "동일 건물 | 반경 30m 이내 인접 | 동일 도로변·인근 상권",
+      "locationHint": "검색된 건물명 또는 지번/도로명 위치 설명",
+      "floor": "예: 1층",
+      "areaText": "예: 전용 50㎡ (15.1평)",
+      "depositManwon": "예: 5,000만원 또는 미확인",
+      "monthlyRentManwon": "예: 320만원 또는 미확인",
+      "maintenanceFeeManwon": "예: 25만원 또는 미공개(중개사 확인 필요)",
+      "premiumManwon": "예: 3,000만원 / 무권리 / 협의 / 미공개",
+      "sourceName": "예: 네이버 부동산 / 네모 / 직방 / 공인중개사 블로그 등",
+      "note": "검색 결과에서 확인된 매물 특징 1문장"
+    }
+  ],
+  "neighborhoodBenchmark": {
+    "depositRange": "인근 동일 조건(또는 1층 상가) 검색상 보증금 참고 범위",
+    "rentRange": "인근 검색상 월세 및 평당 임대료 참고 범위",
+    "maintenanceNote": "관리비 통상 참고사항",
+    "premiumNote": "인근 권리금 형성 참고사항"
+  },
+  "searchTips": [
+    "네이버 부동산 등에서 동일 건물·30m 이내 매물을 추가 확인할 때 체크할 실무 팁"
+  ]
+}
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: prompt,
+      config: {
+        tools: [{ googleSearch: {} }],
+      },
+    });
+
+    const rawText = (response.text || '').trim();
+    const rawChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const seenUrls = new Set<string>();
+    const sources: Array<{ title: string; uri: string }> = [];
+    for (const chunk of rawChunks) {
+      const uri = chunk?.web?.uri;
+      if (uri && !seenUrls.has(uri)) {
+        seenUrls.add(uri);
+        sources.push({
+          title: chunk?.web?.title || uri,
+          uri,
+        });
+      }
+    }
+    const searchQueries: string[] =
+      response.candidates?.[0]?.groundingMetadata?.webSearchQueries || [];
+
+    let parsed: any = null;
+    const jsonBlockMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidateJson = jsonBlockMatch ? jsonBlockMatch[1].trim() : rawText;
+    try {
+      parsed = JSON.parse(candidateJson);
+    } catch {
+      const braceMatch = candidateJson.match(/\{[\s\S]*\}/);
+      if (braceMatch) {
+        try {
+          parsed = JSON.parse(braceMatch[0]);
+        } catch {
+          parsed = null;
+        }
+      }
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      parsed = {
+        searchScopeNote: rawText || '검색 결과를 요약하지 못했습니다. 아래 출처 링크 및 매물 사이트에서 직접 확인해주세요.',
+        listings: [],
+        neighborhoodBenchmark: null,
+        searchTips: [],
+      };
+    } else {
+      parsed.listings = Array.isArray(parsed.listings) ? parsed.listings : [];
+      parsed.searchTips = Array.isArray(parsed.searchTips) ? parsed.searchTips : [];
+    }
+
+    res.json({
+      success: true,
+      data: parsed,
+      sources,
+      searchQueries,
+    });
+  } catch (error: any) {
+    console.error('Nearby lease search error:', error);
+    const rawMsg = String(error?.message || '');
+    const friendly =
+      rawMsg.includes('API key') || rawMsg.includes('API_KEY')
+        ? 'GEMINI_API_KEY가 유효하지 않거나 설정되지 않았습니다. 아래 부동산 매물 사이트 바로가기로 직접 확인해주세요.'
+        : rawMsg.includes('429') || rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('quota')
+        ? '웹 검색 API 호출 한도(Quota)에 일시적으로 도달했습니다. 상단의 네이버 부동산·네모·직방 바로가기 버튼을 눌러 자동 복사된 주소로 동일 건물 및 30m 이내 매물을 바로 확인해주세요.'
+        : rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE')
+        ? '검색 요청이 일시적으로 많습니다. 잠시 후 다시 시도하거나 상단 매물 사이트 바로가기를 이용해주세요.'
+        : '인근 매물 사례 웹 검색 중 일시적인 오류가 발생했습니다. 상단의 부동산 매물 사이트 바로가기로 직접 확인해주세요.';
+    res.status(500).json({ success: false, error: friendly });
+  }
+});
+
 function parseJibunCodes(bcode?: string, jibunAddress?: string, fallbackAddress?: string) {
   const cleanBcode = (bcode || '').replace(/\D/g, '');
   const sigunguCd = cleanBcode.length >= 5 ? cleanBcode.slice(0, 5) : '';

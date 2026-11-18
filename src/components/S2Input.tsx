@@ -64,7 +64,93 @@ import {
   Trash2,
   RefreshCw,
   ChevronDown,
+  Globe,
+  Scale,
 } from 'lucide-react';
+
+interface NearbyListingItem {
+  scopeLabel: string;
+  locationHint: string;
+  floor: string;
+  areaText: string;
+  depositManwon: string;
+  monthlyRentManwon: string;
+  maintenanceFeeManwon: string;
+  premiumManwon: string;
+  sourceName: string;
+  note: string;
+}
+
+interface NearbySearchData {
+  searchScopeNote: string;
+  listings: NearbyListingItem[];
+  neighborhoodBenchmark?: {
+    depositRange?: string;
+    rentRange?: string;
+    maintenanceNote?: string;
+    premiumNote?: string;
+  } | null;
+  searchTips?: string[];
+}
+
+interface NearbySearchState {
+  data: NearbySearchData;
+  sources: Array<{ title: string; uri: string }>;
+  searchQueries?: string[];
+}
+
+function extractManwonNumber(raw?: string): string {
+  if (!raw) return '';
+  const text = String(raw).replace(/\s+/g, '');
+  if (!text || /미공개|미확인|협의|문의|별도|없음/.test(text)) {
+    if (/무권리/.test(text)) return '0';
+    return '';
+  }
+  const eokMatch = text.match(/(\d+(?:\.\d+)?)억(?:(\d+(?:,\d+)*))?/);
+  if (eokMatch) {
+    const eok = parseFloat(eokMatch[1]) * 10000;
+    const rem = eokMatch[2] ? parseInt(eokMatch[2].replace(/,/g, ''), 10) : 0;
+    const total = Math.round(eok + rem);
+    return total > 0 ? String(total) : '';
+  }
+  const numMatch = text.match(/(\d+(?:,\d+)*(?:\.\d+)?)/);
+  if (!numMatch) return '';
+  const val = parseFloat(numMatch[1].replace(/,/g, ''));
+  return Number.isFinite(val) ? String(Math.round(val)) : '';
+}
+
+function extractSqmNumber(raw?: string): string {
+  if (!raw) return '';
+  const sqmMatch = String(raw).match(/(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)/i);
+  if (sqmMatch) return sqmMatch[1];
+  const pyeongMatch = String(raw).match(/(\d+(?:\.\d+)?)\s*평/);
+  if (pyeongMatch) {
+    return (parseFloat(pyeongMatch[1]) / 0.3025).toFixed(1);
+  }
+  return '';
+}
+
+function buildPropertyPortalQuery(address: string, jibunAddress?: string, buildingName?: string) {
+  const cleanRoad = (address || '').split('(')[0].trim();
+  const cleanJibun = (jibunAddress || '').split('(')[0].trim();
+  const cleanBuilding = (buildingName || '').trim();
+  const fullCopyText = cleanBuilding && !cleanRoad.includes(cleanBuilding)
+    ? `${cleanRoad} (${cleanBuilding})`
+    : cleanRoad || cleanJibun;
+
+  // Short keyword best suited for Nemo / Naver keyword search (dong/road + number)
+  const sourceStr = cleanJibun || cleanRoad;
+  const tokens = sourceStr.split(/\s+/).filter(Boolean);
+  const shortKeyword =
+    tokens.length >= 2 ? tokens.slice(-2).join(' ') : sourceStr;
+
+  return {
+    fullCopyText,
+    cleanRoad,
+    cleanJibun,
+    shortKeyword,
+  };
+}
 
 interface S2InputProps {
   candidate: CandidateLocation;
@@ -170,6 +256,27 @@ export const S2Input: React.FC<S2InputProps> = ({
   );
   const [selectedTaxItemId, setSelectedTaxItemId] = useState<string>(initialTaxMatch?.id || '');
 
+  // 동일 건물 · 반경 30m 이내 임대 사례 참고 (매물 사이트 검색 & 웹 검색) 상태
+  const [nearbyCopyNotice, setNearbyCopyNotice] = useState<string | null>(null);
+  const [isSearchingNearby, setIsSearchingNearby] = useState(false);
+  const [nearbySearchResult, setNearbySearchResult] = useState<NearbySearchState | null>(null);
+  const [nearbySearchError, setNearbySearchError] = useState<string | null>(null);
+  const [compareListing, setCompareListing] = useState<{
+    label: string;
+    deposit: string;
+    monthlyRent: string;
+    maintenanceFee: string;
+    premium: string;
+    areaSqm: string;
+  }>({
+    label: '',
+    deposit: '',
+    monthlyRent: '',
+    maintenanceFee: '',
+    premium: '',
+    areaSqm: '',
+  });
+
   useEffect(() => {
     setBuildingTitle(null);
     setApiUnits([]);
@@ -181,6 +288,17 @@ export const S2Input: React.FC<S2InputProps> = ({
     setShowLocationAutocomplete(false);
     setIndustrySearchQuery('');
     setShowIndustryAutocomplete(false);
+    setNearbyCopyNotice(null);
+    setNearbySearchResult(null);
+    setNearbySearchError(null);
+    setCompareListing({
+      label: '',
+      deposit: '',
+      monthlyRent: '',
+      maintenanceFee: '',
+      premium: '',
+      areaSqm: '',
+    });
     setLastAutoDetectedInfo(detectRegionFromAddress(candidate.address));
     setLastRegulatoryPrediction(
       predictRegulationsLocally(candidate.address, candidate.floor, candidate.businessType)
@@ -311,6 +429,9 @@ export const S2Input: React.FC<S2InputProps> = ({
     setApiUnits([]);
     setUnitStatusCode(null);
     setUnitStatusMessage(null);
+    setNearbySearchResult(null);
+    setNearbySearchError(null);
+    setNearbyCopyNotice(null);
 
     if (!skipIndexSync) {
       const matched = matchRegionFromAddressString(newAddress);
@@ -329,6 +450,56 @@ export const S2Input: React.FC<S2InputProps> = ({
       parcelInfo: undefined,
       selectedUnitId: undefined,
     });
+  };
+
+  const handleCopyPortalAddress = (copyTarget: string, portalName?: string) => {
+    if (!copyTarget) return;
+    copyTextToClipboard(copyTarget);
+    setNearbyCopyNotice(
+      portalName
+        ? `검색어("${copyTarget}")를 복사했습니다. 열린 ${portalName} 검색창에 붙여넣기(Ctrl+V)하여 동일 건물 및 30m 이내 매물을 확인하세요.`
+        : `검색어("${copyTarget}")가 클립보드에 복사되었습니다.`
+    );
+    setTimeout(() => setNearbyCopyNotice(null), 5000);
+  };
+
+  const handleSearchNearbyListings = async () => {
+    if (!candidate.address.trim()) {
+      setNearbySearchError('상단 [1. 후보지 기본정보]에서 후보지 주소를 먼저 입력해주세요.');
+      return;
+    }
+    setIsSearchingNearby(true);
+    setNearbySearchError(null);
+    try {
+      const res = await fetch('/api/gemini/search-nearby-listings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address: candidate.address,
+          jibunAddress: candidate.parcelInfo?.jibunAddress || '',
+          buildingName: buildingTitle?.buildingName || candidate.parcelInfo?.buildingName || '',
+          floor: candidate.floor,
+          areaSqm: candidate.areaSqm,
+          businessName: candidate.businessName,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setNearbySearchResult(null);
+        setNearbySearchError(json.error || '인근 매물 사례 검색에 실패했습니다.');
+        return;
+      }
+      setNearbySearchResult({
+        data: json.data,
+        sources: Array.isArray(json.sources) ? json.sources : [],
+        searchQueries: Array.isArray(json.searchQueries) ? json.searchQueries : [],
+      });
+    } catch (err: any) {
+      setNearbySearchResult(null);
+      setNearbySearchError(err?.message || '인근 매물 사례 웹 검색 중 통신 오류가 발생했습니다.');
+    } finally {
+      setIsSearchingNearby(false);
+    }
   };
 
   const applyRegionIndexSelection = (sido: string, sigungu: string, dong: string, ri: string) => {
@@ -1853,6 +2024,562 @@ export const S2Input: React.FC<S2InputProps> = ({
                     {initialLeaseCash.toLocaleString()}만원
                   </strong>
                 </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Same-Building & 30m Radius Real Estate Portal Search & Lease Reference */}
+        {(() => {
+          const portalQuery = buildPropertyPortalQuery(
+            candidate.address,
+            candidate.parcelInfo?.jibunAddress,
+            buildingTitle?.buildingName || candidate.parcelInfo?.buildingName
+          );
+          const hasAddress = Boolean(candidate.address.trim());
+          const matchedRegion = matchRegionFromAddressString(candidate.address);
+          const regionQueryCore = [matchedRegion.sigungu, matchedRegion.dong]
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+          const shortNaverQuery = regionQueryCore
+            ? `${regionQueryCore} 상가 임대`
+            : portalQuery.shortKeyword
+            ? `${portalQuery.shortKeyword} 상가 임대`
+            : '상가 임대 월세';
+          const portalCards = [
+            {
+              id: 'naver-land',
+              name: '네이버페이 부동산 (상가 지도)',
+              badge: '지도·매물 1순위',
+              badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+              url: 'https://land.naver.com',
+              copyText: portalQuery.cleanRoad || portalQuery.cleanJibun || candidate.address,
+              hint: '열린 네이버 부동산 상단 검색창에 복사된 주소를 붙여넣고(Ctrl+V) [상가·업무] 탭에서 반경 30m 매물 확인',
+            },
+            {
+              id: 'naver-web-listings',
+              name: '네이버 상가매물 통합검색',
+              badge: '호실·권리금 검색',
+              badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',
+              url: `https://search.naver.com/search.naver?where=nexearch&sm=top_hty&ie=utf8&query=${encodeURIComponent(shortNaverQuery)}`,
+              copyText: portalQuery.cleanRoad || portalQuery.cleanJibun || candidate.address,
+              hint: '해당 동·상권의 상가 임대 위젯 및 보증금·월세·관리비·권리금 중개사 매물 글을 바로 조회',
+            },
+            {
+              id: 'nemo',
+              name: '네모 (NEMO) 상가·점포',
+              badge: '권리금·월세 특화',
+              badgeColor: 'bg-rose-100 text-rose-800 border-rose-200',
+              url: 'https://www.nemoapp.kr/store',
+              copyText: portalQuery.shortKeyword || portalQuery.cleanRoad || candidate.address,
+              hint: '네모 상가 지도 검색창에 복사된 지역·주소(Ctrl+V)를 입력해 인접 30m 점포 권리금·월세·관리비 확인',
+            },
+            {
+              id: 'zigbang',
+              name: '직방 상가·점포 시세',
+              badge: '시세 교차검증',
+              badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
+              url: 'https://www.zigbang.com',
+              copyText: portalQuery.cleanRoad || portalQuery.cleanJibun || candidate.address,
+              hint: '직방 상단 검색창에 복사된 주소(Ctrl+V)를 붙여넣어 동일·인접 건물 임대 매물 교차 확인',
+            },
+          ];
+
+          const myMonthlyFixed = (candidate.monthlyRent || 0) + (candidate.maintenanceFee || 0);
+          const myAreaPyeong = candidate.areaSqm > 0 ? candidate.areaSqm * 0.3025 : 0;
+          const myRentPerPyeong = myAreaPyeong > 0 ? myMonthlyFixed / myAreaPyeong : 0;
+          const myInitialCash = (candidate.deposit || 0) + (candidate.premium || 0);
+
+          const hasCompareInput = Boolean(
+            compareListing.deposit !== '' ||
+              compareListing.monthlyRent !== '' ||
+              compareListing.maintenanceFee !== '' ||
+              compareListing.premium !== ''
+          );
+          const cmpDeposit = parseFloat(compareListing.deposit) || 0;
+          const cmpRent = parseFloat(compareListing.monthlyRent) || 0;
+          const cmpMaint = parseFloat(compareListing.maintenanceFee) || 0;
+          const cmpPremium = parseFloat(compareListing.premium) || 0;
+          const cmpAreaSqm = parseFloat(compareListing.areaSqm) || candidate.areaSqm || 0;
+          const cmpAreaPyeong = cmpAreaSqm > 0 ? cmpAreaSqm * 0.3025 : 0;
+          const cmpMonthlyFixed = cmpRent + cmpMaint;
+          const cmpRentPerPyeong = cmpAreaPyeong > 0 ? cmpMonthlyFixed / cmpAreaPyeong : 0;
+          const cmpInitialCash = cmpDeposit + cmpPremium;
+
+          const monthlyDiff = myMonthlyFixed - cmpMonthlyFixed;
+          const perPyeongDiff = myRentPerPyeong - cmpRentPerPyeong;
+          const initialCashDiff = myInitialCash - cmpInitialCash;
+
+          return (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 space-y-4">
+              {/* Header & Address Copy Bar */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 pb-3.5">
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                      <Globe className="w-4 h-4 text-emerald-600" />
+                      동일 건물 · 반경 30m 이내 임대 사례 참고 (매물 사이트 검색)
+                    </h4>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      네이버 부동산 · 네모 · 직방 연동
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">
+                    후보지 건물 또는 반경 30m 이내 상가의 실제 <strong>임차보증금·임대료·관리비·권리금</strong> 매물을 검색해 현재 계약 조건이 적정한지 바로 비교하세요.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSearchNearbyListings}
+                  disabled={isSearchingNearby || !hasAddress}
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold shadow-xs transition-colors flex-shrink-0 cursor-pointer"
+                >
+                  {isSearchingNearby ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      웹 매물 사례 조회 중...
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-3.5 h-3.5 text-emerald-400" />
+                      30m 이내 매물 사례 웹 검색
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Search Keyword Quick-Copy Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <MapPin className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                  <span className="text-slate-500 font-semibold flex-shrink-0">매물 검색 기준 위치:</span>
+                  <span className="font-mono font-bold text-slate-800 truncate">
+                    {portalQuery.fullCopyText || '상단에서 후보지 주소를 먼저 입력하세요'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button
+                    type="button"
+                    disabled={!hasAddress}
+                    onClick={() => handleCopyPortalAddress(portalQuery.fullCopyText)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-700 font-bold text-[11px] transition-colors cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    주소 복사
+                  </button>
+                  <a
+                    href="https://rt.molit.go.kr"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                    onClick={() => handleCopyPortalAddress(portalQuery.cleanJibun || portalQuery.cleanRoad || candidate.address, '국토부 실거래가')}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-[11px] transition-colors"
+                  >
+                    국토부 실거래가
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
+
+              {nearbyCopyNotice && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>{nearbyCopyNotice}</span>
+                </div>
+              )}
+
+              {/* Direct Real-Estate Portal Search Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                {portalCards.map((portal) => (
+                  <a
+                    key={portal.id}
+                    href={portal.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                    onClick={() => handleCopyPortalAddress(portal.copyText, portal.name)}
+                    className="group flex flex-col justify-between p-3 rounded-xl bg-white hover:bg-emerald-50/40 border border-slate-200 hover:border-emerald-400 transition-all shadow-2xs"
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${portal.badgeColor}`}>
+                          {portal.badge}
+                        </span>
+                        <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 flex-shrink-0" />
+                      </div>
+                      <div className="text-xs font-extrabold text-slate-900 group-hover:text-emerald-800">
+                        {portal.name}
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        {portal.hint}
+                      </p>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-slate-100 text-[10px] font-bold text-emerald-700 flex items-center justify-between">
+                      <span>클릭 시 주소 자동 복사 & 이동</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </div>
+                  </a>
+                ))}
+              </div>
+
+              {/* Web Search Grounded Results Error or Display */}
+              {nearbySearchError && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="font-bold">웹 매물 사례 자동 조회 안내</div>
+                    <div className="text-[11px] leading-relaxed">{nearbySearchError}</div>
+                  </div>
+                </div>
+              )}
+
+              {nearbySearchResult && (
+                <div className="rounded-xl bg-white border border-emerald-200 p-4 space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-900">
+                      <Sparkles className="w-4 h-4 text-emerald-600" />
+                      검색 기반 동일 건물 · 30m 이내 인근 임대 사례 요약
+                    </div>
+                    <span className="text-[10px] font-semibold text-slate-500">
+                      공개 웹 색인 기반 참고자료 · 실제 계약 시 중개사·임대인 확인 필수
+                    </span>
+                  </div>
+
+                  {nearbySearchResult.data.searchScopeNote && (
+                    <p className="text-xs text-slate-700 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 leading-relaxed">
+                      {nearbySearchResult.data.searchScopeNote}
+                    </p>
+                  )}
+
+                  {nearbySearchResult.data.listings.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {nearbySearchResult.data.listings.map((item, idx) => {
+                        const parsedDep = extractManwonNumber(item.depositManwon);
+                        const parsedRent = extractManwonNumber(item.monthlyRentManwon);
+                        const parsedMaint = extractManwonNumber(item.maintenanceFeeManwon);
+                        const parsedPrem = extractManwonNumber(item.premiumManwon);
+                        const parsedSqm = extractSqmNumber(item.areaText);
+                        const canFillCompare = Boolean(parsedDep || parsedRent);
+
+                        return (
+                          <div
+                            key={`${item.locationHint}-${idx}`}
+                            className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5 text-xs"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-0.5">
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 border border-blue-200">
+                                  {item.scopeLabel || '인근 매물'}
+                                </span>
+                                <div className="font-extrabold text-slate-900 pt-0.5">
+                                  {item.locationHint}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {[item.floor, item.areaText, item.sourceName].filter(Boolean).join(' · ')}
+                                </div>
+                              </div>
+                              {canFillCompare && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCompareListing({
+                                      label: item.locationHint || item.scopeLabel,
+                                      deposit: parsedDep,
+                                      monthlyRent: parsedRent,
+                                      maintenanceFee: parsedMaint,
+                                      premium: parsedPrem,
+                                      areaSqm: parsedSqm || String(candidate.areaSqm || ''),
+                                    })
+                                  }
+                                  className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold flex-shrink-0 transition-colors cursor-pointer"
+                                >
+                                  내 조건과 비교
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px] tabular-nums">
+                              <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                <span className="text-[10px] text-slate-400 block">보증금</span>
+                                <strong className="text-slate-900 font-bold">{item.depositManwon || '-'}</strong>
+                              </div>
+                              <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                <span className="text-[10px] text-slate-400 block">월세</span>
+                                <strong className="text-rose-700 font-bold">{item.monthlyRentManwon || '-'}</strong>
+                              </div>
+                              <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                <span className="text-[10px] text-slate-400 block">관리비</span>
+                                <strong className="text-slate-800 font-bold">{item.maintenanceFeeManwon || '-'}</strong>
+                              </div>
+                              <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                <span className="text-[10px] text-slate-400 block">권리금</span>
+                                <strong className="text-amber-700 font-bold">{item.premiumManwon || '-'}</strong>
+                              </div>
+                            </div>
+
+                            {item.note && (
+                              <p className="text-[11px] text-slate-600 leading-relaxed">
+                                {item.note}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-600 bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-200">
+                      해당 주소의 공개 웹 색인에서 호실별 보증금·월세 수치가 직접 포함된 개별 매물 글은 확인되지 않았습니다. 상단의 <strong>네이버 부동산 / 네모 / 직방</strong> 바로가기로 지도 위 인접 30m 매물을 직접 열어 확인해주세요.
+                    </div>
+                  )}
+
+                  {nearbySearchResult.data.neighborhoodBenchmark && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-[11px] pt-1">
+                      {nearbySearchResult.data.neighborhoodBenchmark.depositRange && (
+                        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                          <span className="text-[10px] font-bold text-slate-500 block">인근 참고 보증금</span>
+                          <span className="font-semibold text-slate-800">
+                            {nearbySearchResult.data.neighborhoodBenchmark.depositRange}
+                          </span>
+                        </div>
+                      )}
+                      {nearbySearchResult.data.neighborhoodBenchmark.rentRange && (
+                        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                          <span className="text-[10px] font-bold text-slate-500 block">인근 참고 월세·시세</span>
+                          <span className="font-semibold text-slate-800">
+                            {nearbySearchResult.data.neighborhoodBenchmark.rentRange}
+                          </span>
+                        </div>
+                      )}
+                      {nearbySearchResult.data.neighborhoodBenchmark.maintenanceNote && (
+                        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                          <span className="text-[10px] font-bold text-slate-500 block">관리비 참고</span>
+                          <span className="font-semibold text-slate-800">
+                            {nearbySearchResult.data.neighborhoodBenchmark.maintenanceNote}
+                          </span>
+                        </div>
+                      )}
+                      {nearbySearchResult.data.neighborhoodBenchmark.premiumNote && (
+                        <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                          <span className="text-[10px] font-bold text-slate-500 block">권리금 형성 참고</span>
+                          <span className="font-semibold text-slate-800">
+                            {nearbySearchResult.data.neighborhoodBenchmark.premiumNote}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {nearbySearchResult.data.searchTips && nearbySearchResult.data.searchTips.length > 0 && (
+                    <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100">
+                      {nearbySearchResult.data.searchTips.map((tip, i) => (
+                        <li key={i}>{tip}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {nearbySearchResult.sources.length > 0 && (
+                    <div className="pt-2 border-t border-slate-100 space-y-1.5">
+                      <span className="text-[11px] font-bold text-slate-600 block">
+                        웹 검색 참고 출처 ({nearbySearchResult.sources.length}건)
+                      </span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {nearbySearchResult.sources.map((src, i) => (
+                          <a
+                            key={`${src.uri}-${i}`}
+                            href={src.uri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 text-[11px] font-medium max-w-xs truncate"
+                          >
+                            <span className="truncate">{src.title}</span>
+                            <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Direct Real Estate Listing Comparison Calculator */}
+              <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-900">
+                    <Scale className="w-4 h-4 text-blue-600" />
+                    매물 사이트 확인 사례 vs 내 후보지 직접 비교하기
+                  </div>
+                  {hasCompareInput && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCompareListing({
+                          label: '',
+                          deposit: '',
+                          monthlyRent: '',
+                          maintenanceFee: '',
+                          premium: '',
+                          areaSqm: '',
+                        })
+                      }
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-800 cursor-pointer"
+                    >
+                      비교 입력 초기화
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  네이버 부동산·네모 등에서 찾은 동일 건물이나 30m 이내 비교 매물의 조건을 입력하면 현재 검토 조건과 차이를 즉시 계산합니다.
+                </p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5 text-xs">
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">비교 매물 메모</label>
+                    <input
+                      type="text"
+                      value={compareListing.label}
+                      onChange={(e) => setCompareListing({ ...compareListing, label: e.target.value })}
+                      placeholder="예: 옆건물 1층 15평"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">보증금 (만원)</label>
+                    <input
+                      type="number"
+                      step="100"
+                      value={compareListing.deposit}
+                      onChange={(e) => setCompareListing({ ...compareListing, deposit: e.target.value })}
+                      placeholder="예: 5000"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">월세 (만원)</label>
+                    <input
+                      type="number"
+                      step="10"
+                      value={compareListing.monthlyRent}
+                      onChange={(e) => setCompareListing({ ...compareListing, monthlyRent: e.target.value })}
+                      placeholder="예: 300"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">관리비 (만원)</label>
+                    <input
+                      type="number"
+                      step="5"
+                      value={compareListing.maintenanceFee}
+                      onChange={(e) => setCompareListing({ ...compareListing, maintenanceFee: e.target.value })}
+                      placeholder="예: 25"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">권리금 (만원)</label>
+                    <input
+                      type="number"
+                      step="100"
+                      value={compareListing.premium}
+                      onChange={(e) => setCompareListing({ ...compareListing, premium: e.target.value })}
+                      placeholder="예: 3000"
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">전용면적 (㎡)</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={compareListing.areaSqm}
+                      onChange={(e) => setCompareListing({ ...compareListing, areaSqm: e.target.value })}
+                      placeholder={candidate.areaSqm ? `${candidate.areaSqm}` : '예: 49.5'}
+                      className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-semibold"
+                    />
+                  </div>
+                </div>
+
+                {hasCompareInput && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs tabular-nums">
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">
+                          월 고정 임차료 비교{compareListing.label ? ` (${compareListing.label})` : ''}
+                        </span>
+                        <span className="font-bold text-slate-800">
+                          내 조건 {myMonthlyFixed.toLocaleString()}만 vs 사례 {cmpMonthlyFixed.toLocaleString()}만
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
+                          monthlyDiff > 0
+                            ? 'bg-rose-100 text-rose-700'
+                            : monthlyDiff < 0
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {monthlyDiff > 0
+                          ? `+${monthlyDiff.toLocaleString()}만 비쌈`
+                          : monthlyDiff < 0
+                          ? `${Math.abs(monthlyDiff).toLocaleString()}만 저렴`
+                          : '동일'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">
+                          평당 월 임차료 비교 ({cmpAreaPyeong.toFixed(1)}평 기준)
+                        </span>
+                        <span className="font-bold text-slate-800">
+                          내 조건 {myRentPerPyeong.toFixed(1)}만 vs 사례 {cmpRentPerPyeong.toFixed(1)}만
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
+                          perPyeongDiff > 0.2
+                            ? 'bg-rose-100 text-rose-700'
+                            : perPyeongDiff < -0.2
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {perPyeongDiff > 0.2
+                          ? `+${perPyeongDiff.toFixed(1)}만/평`
+                          : perPyeongDiff < -0.2
+                          ? `${perPyeongDiff.toFixed(1)}만/평`
+                          : '유사'}
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-500 block">초기 현금 (보증금+권리금)</span>
+                        <span className="font-bold text-slate-800">
+                          내 조건 {myInitialCash.toLocaleString()}만 vs 사례 {cmpInitialCash.toLocaleString()}만
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[11px] font-extrabold px-2 py-0.5 rounded ${
+                          initialCashDiff > 0
+                            ? 'bg-rose-100 text-rose-700'
+                            : initialCashDiff < 0
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {initialCashDiff > 0
+                          ? `+${initialCashDiff.toLocaleString()}만 부담`
+                          : initialCashDiff < 0
+                          ? `${Math.abs(initialCashDiff).toLocaleString()}만 절감`
+                          : '동일'}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           );
