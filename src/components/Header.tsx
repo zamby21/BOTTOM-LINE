@@ -47,7 +47,19 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
           {/* Logo & Value Hook */}
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => {
+              if (window.location.pathname !== '/' || window.location.search || window.location.hash) {
+                window.location.assign('/');
+              } else {
+                window.location.reload();
+              }
+            }}
+            title="첫 화면으로 새로고침"
+            aria-label="BOTTOM LINE 첫 화면으로 페이지 새로고침"
+            className="flex items-center gap-2 sm:gap-3 min-w-0 text-left cursor-pointer hover:opacity-85 active:scale-[0.99] transition-all rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          >
             <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-700 via-indigo-700 to-slate-900 flex items-center justify-center text-white shadow-xs flex-shrink-0">
               <Building2 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-200" />
             </div>
@@ -64,7 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
                 Top-line 매출추정 한계 극복 ➔ 비용구조(Bottom-line) & 6대 규제(Risk) 종합 의사결정
               </p>
             </div>
-          </div>
+          </button>
 
           {/* Desktop Candidate Switcher & Actions */}
           <div className="hidden lg:flex items-center gap-2">
