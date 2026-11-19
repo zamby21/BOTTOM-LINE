@@ -564,38 +564,65 @@ function getEncodedKeyCandidates(rawKey: string): string[] {
   return Array.from(new Set(candidates));
 }
 
-async function fetchDataGoKrJson(
+function safeParseJsonText(rawText: string): { ok: true; value: any } | { ok: false } {
+  const trimmed = (rawText || '').trim();
+  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+    return { ok: false };
+  }
+  try {
+    return { ok: true, value: JSON.parse(trimmed) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function fetchDataGoKrJsonOnce(
   fullUrlWithoutKey: string,
-  encodedKey: string
-): Promise<{ ok: boolean; json?: any; errorCode?: string; errorMessage?: string }> {
+  encodedKey: string,
+  timeoutMs = 8500
+): Promise<{ ok: boolean; json?: any; errorCode?: string; errorMessage?: string; retryable?: boolean }> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const sep = fullUrlWithoutKey.includes('?') ? '&' : '?';
     const res = await fetch(`${fullUrlWithoutKey}${sep}serviceKey=${encodedKey}`, {
       signal: controller.signal,
+      headers: { Accept: 'application/json, text/xml;q=0.9, */*;q=0.8' },
     });
     const text = await res.text();
+    const trimmed = text.trim();
 
     if (!res.ok) {
       return {
         ok: false,
         errorCode: `HTTP_${res.status}`,
-        errorMessage: `공공데이터포털 HTTP 오류 (${res.status})`,
+        errorMessage: `공공데이터포털 일시 응답 오류 (HTTP ${res.status})`,
+        retryable: res.status >= 500 || res.status === 429,
       };
     }
 
     // data.go.kr gateway returns XML on auth/service errors even when _type=json is requested
-    if (text.trim().startsWith('<')) {
-      const authMsgMatch = text.match(/<returnAuthMsg>([^<]+)<\/returnAuthMsg>/i);
-      const errMsgMatch = text.match(/<errMsg>([^<]+)<\/errMsg>/i);
-      const reasonCodeMatch = text.match(/<returnReasonCode>([^<]+)<\/returnReasonCode>/i);
+    if (trimmed.startsWith('<')) {
+      const authMsgMatch = trimmed.match(/<returnAuthMsg>([^<]+)<\/returnAuthMsg>/i);
+      const errMsgMatch = trimmed.match(/<errMsg>([^<]+)<\/errMsg>/i);
+      const reasonCodeMatch = trimmed.match(/<returnReasonCode>([^<]+)<\/returnReasonCode>/i);
       const code = authMsgMatch?.[1] || reasonCodeMatch?.[1] || 'DATA_GO_KR_XML_ERROR';
       const detail = errMsgMatch?.[1] || code;
-      return { ok: false, errorCode: code, errorMessage: detail };
+      const retryable = !code.includes('SERVICE_KEY') && !code.includes('DEADLINE') && !code.includes('ACCESS_DENIED');
+      return { ok: false, errorCode: code, errorMessage: detail, retryable };
     }
 
-    const parsed = JSON.parse(text);
+    const parsedResult = safeParseJsonText(trimmed);
+    if (!parsedResult.ok) {
+      return {
+        ok: false,
+        errorCode: 'UPSTREAM_NON_JSON',
+        errorMessage: '공공데이터포털(건축HUB) 서버가 일시적으로 비정상 응답을 반환했습니다.',
+        retryable: true,
+      };
+    }
+
+    const parsed = parsedResult.value;
     const resultCode = String(parsed?.response?.header?.resultCode ?? '00');
     const resultMsg = String(parsed?.response?.header?.resultMsg ?? '');
     if (resultCode !== '00') {
@@ -603,18 +630,44 @@ async function fetchDataGoKrJson(
         ok: false,
         errorCode: `RESULT_${resultCode}`,
         errorMessage: resultMsg || `공공데이터 API 오류 코드 ${resultCode}`,
+        retryable: resultCode === '99' || resultCode === '04' || resultCode === '05',
       };
     }
     return { ok: true, json: parsed };
   } catch (err: any) {
+    const isTimeout = err?.name === 'AbortError';
     return {
       ok: false,
-      errorCode: 'FETCH_ERROR',
-      errorMessage: err?.name === 'AbortError' ? '공공데이터 API 응답 시간 초과' : err?.message || '통신 오류',
+      errorCode: isTimeout ? 'TIMEOUT' : 'FETCH_ERROR',
+      errorMessage: isTimeout
+        ? '공공데이터포털(건축HUB) 응답 시간이 초과되었습니다.'
+        : '공공데이터포털(건축HUB) 통신 중 일시적인 네트워크 오류가 발생했습니다.',
+      retryable: true,
     };
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchDataGoKrJson(
+  fullUrlWithoutKey: string,
+  encodedKey: string,
+  maxAttempts = 2
+): Promise<{ ok: boolean; json?: any; errorCode?: string; errorMessage?: string }> {
+  let lastResult: { ok: boolean; json?: any; errorCode?: string; errorMessage?: string; retryable?: boolean } = {
+    ok: false,
+    errorCode: 'FETCH_ERROR',
+    errorMessage: '공공데이터포털(건축HUB) 통신 오류가 발생했습니다.',
+  };
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    lastResult = await fetchDataGoKrJsonOnce(fullUrlWithoutKey, encodedKey, attempt === 1 ? 8500 : 7500);
+    if (lastResult.ok || !lastResult.retryable || attempt === maxAttempts) {
+      return lastResult;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 350 * attempt));
+  }
+  return lastResult;
 }
 
 function translateDataGoKrError(code?: string, detail?: string): string {
@@ -630,6 +683,9 @@ function translateDataGoKrError(code?: string, detail?: string): string {
   }
   if (c.includes('SERVICE_ACCESS_DENIED') || c.includes('APPLICATION_ERROR')) {
     return '건축물대장 API 서비스 접근이 거부되었습니다. 공공데이터포털 활용신청 승인 여부를 확인해주세요.';
+  }
+  if (c === 'UPSTREAM_NON_JSON' || c === 'TIMEOUT' || c === 'FETCH_ERROR' || c.startsWith('HTTP_5')) {
+    return '공공데이터포털(건축HUB) 서버 응답이 일시적으로 지연되거나 중단되었습니다. 잠시 후 [건축물대장 호실 불러오기]를 다시 눌러주세요.';
   }
   return detail || '국토교통부 건축물대장 API 응답 오류가 발생했습니다.';
 }
@@ -649,80 +705,117 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
     let parcel = parseJibunCodes(bcode, jibunAddress, address);
 
     // Fallback 1: Resolve parcel via MOIS Juso Road-Name Address API if JUSO_API_KEY is configured
-    if (!parcel && address && process.env.JUSO_API_KEY) {
-      const jusoParams = new URLSearchParams({
-        confmKey: process.env.JUSO_API_KEY,
-        currentPage: '1',
-        countPerPage: '1',
-        keyword: String(address).split('(')[0].trim(),
-        resultType: 'json',
-      });
-      const jusoRes = await fetch(`https://business.juso.go.kr/addrlink/addrLinkApi.do?${jusoParams.toString()}`);
-      if (jusoRes.ok) {
-        const jusoJson: any = await jusoRes.json();
-        const first = jusoJson?.results?.juso?.[0];
-        if (first?.admCd && first?.lnbrMnnm) {
-          parcel = {
-            sigunguCd: String(first.admCd).slice(0, 5),
-            bjdongCd: String(first.admCd).slice(5, 10),
-            platGbCd: first.mtYn === '1' ? '1' : '0',
-            bun: String(first.lnbrMnnm).padStart(4, '0'),
-            ji: String(first.lnbrSlno || '0').padStart(4, '0'),
-          };
+    if (!parcel && (address || jibunAddress) && process.env.JUSO_API_KEY) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4000);
+        try {
+          const jusoParams = new URLSearchParams({
+            confmKey: process.env.JUSO_API_KEY.trim(),
+            currentPage: '1',
+            countPerPage: '1',
+            keyword: String(jibunAddress || address).split('(')[0].trim(),
+            resultType: 'json',
+          });
+          const jusoRes = await fetch(
+            `https://business.juso.go.kr/addrlink/addrLinkApi.do?${jusoParams.toString()}`,
+            { signal: controller.signal }
+          );
+          if (jusoRes.ok) {
+            const parsedJuso = safeParseJsonText(await jusoRes.text());
+            const first = parsedJuso.ok ? parsedJuso.value?.results?.juso?.[0] : null;
+            if (first?.admCd && first?.lnbrMnnm) {
+              parcel = {
+                sigunguCd: String(first.admCd).slice(0, 5),
+                bjdongCd: String(first.admCd).slice(5, 10),
+                platGbCd: first.mtYn === '1' ? '1' : '0',
+                bun: String(first.lnbrMnnm).padStart(4, '0'),
+                ji: String(first.lnbrSlno || '0').padStart(4, '0'),
+              };
+            }
+          }
+        } finally {
+          clearTimeout(timer);
         }
+      } catch {
+        // Ignore Juso lookup failure and continue to next fallback
       }
     }
 
     // Fallback 2: Resolve parcel via Kakao Local Address API if KAKAO_REST_API_KEY is configured
-    if (!parcel && address && process.env.KAKAO_REST_API_KEY) {
-      const cleanKeyword = String(address).split('(')[0].trim();
-      const kakaoRes = await fetch(
-        `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(cleanKeyword)}`,
-        { headers: { Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}` } }
-      );
-      if (kakaoRes.ok) {
-        const kakaoJson: any = await kakaoRes.json();
-        const doc = kakaoJson?.documents?.[0]?.address;
-        if (doc?.b_code && doc?.main_address_no) {
-          const cleanCode = String(doc.b_code).replace(/\D/g, '');
-          if (cleanCode.length >= 10) {
-            parcel = {
-              sigunguCd: cleanCode.slice(0, 5),
-              bjdongCd: cleanCode.slice(5, 10),
-              platGbCd: doc.mountain_yn === 'Y' ? '1' : '0',
-              bun: String(doc.main_address_no).padStart(4, '0'),
-              ji: String(doc.sub_address_no || '0').padStart(4, '0'),
-            };
+    const kakaoKey = (process.env.KAKAO_REST_API_KEY || '').trim();
+    if (!parcel && (address || jibunAddress) && kakaoKey && /^[\x21-\x7E]+$/.test(kakaoKey)) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 4000);
+        try {
+          const cleanKeyword = String(jibunAddress || address).split('(')[0].trim();
+          const kakaoRes = await fetch(
+            `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(cleanKeyword)}`,
+            {
+              headers: { Authorization: `KakaoAK ${kakaoKey}` },
+              signal: controller.signal,
+            }
+          );
+          if (kakaoRes.ok) {
+            const parsedKakao = safeParseJsonText(await kakaoRes.text());
+            const doc = parsedKakao.ok ? parsedKakao.value?.documents?.[0]?.address : null;
+            if (doc?.b_code && doc?.main_address_no) {
+              const cleanCode = String(doc.b_code).replace(/\D/g, '');
+              if (cleanCode.length >= 10) {
+                parcel = {
+                  sigunguCd: cleanCode.slice(0, 5),
+                  bjdongCd: cleanCode.slice(5, 10),
+                  platGbCd: doc.mountain_yn === 'Y' ? '1' : '0',
+                  bun: String(doc.main_address_no).padStart(4, '0'),
+                  ji: String(doc.sub_address_no || '0').padStart(4, '0'),
+                };
+              }
+            }
           }
+        } finally {
+          clearTimeout(timer);
         }
+      } catch {
+        // Ignore Kakao lookup failure and continue to next fallback
       }
     }
 
-    // Fallback 3: If user typed a jibun address (e.g., "경기 용인시 수지구 죽전동 1328-3") and DATA_GO_KR_API_KEY is available,
+    // Fallback 3: If user typed a jibun address (e.g., "경기 용인시 수지구 죽전동 1335-3") and DATA_GO_KR_API_KEY is available,
     // try resolving 10-digit bcode via MOIS StanReginCd API
-    if (!parcel && address && apiKey.trim()) {
-      const addrClean = String(address).split('(')[0].trim();
-      const jibunMatch = addrClean.match(/^(.+?)\s+(산\s*)?(\d{1,4})(?:-(\d{1,4}))?$/);
-      if (jibunMatch) {
-        const regionQuery = jibunMatch[1].trim();
-        const keyCandidate = getEncodedKeyCandidates(apiKey)[0];
-        const regRes = await fetchDataGoKrJson(
-          `https://apis.data.go.kr/1741000/StanReginCd/getStanReginCdList?pageNo=1&numOfRows=5&type=json&locatadd_nm=${encodeURIComponent(regionQuery)}`,
-          keyCandidate
-        );
-        const regItem = regRes.ok
-          ? (regRes.json?.StanReginCd?.[1]?.row?.[0] || normalizeDataGoKrItems(regRes.json)[0])
-          : null;
-        const regionCd = String(regItem?.region_cd || '').replace(/\D/g, '');
-        if (regionCd.length >= 10) {
-          parcel = {
-            sigunguCd: regionCd.slice(0, 5),
-            bjdongCd: regionCd.slice(5, 10),
-            platGbCd: jibunMatch[2] ? '1' : '0',
-            bun: jibunMatch[3].padStart(4, '0'),
-            ji: (jibunMatch[4] || '0').padStart(4, '0'),
-          };
+    if (!parcel && (jibunAddress || address) && apiKey.trim()) {
+      try {
+        const candidatesToParse = [jibunAddress, address]
+          .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+          .map((v) => v.split('(')[0].trim());
+
+        for (const addrClean of candidatesToParse) {
+          const jibunMatch = addrClean.match(/^(.+?)\s+(산\s*)?(\d{1,4})(?:-(\d{1,4}))?$/);
+          if (!jibunMatch) continue;
+          const regionQuery = jibunMatch[1].trim();
+          const keyCandidate = getEncodedKeyCandidates(apiKey)[0];
+          const regRes = await fetchDataGoKrJson(
+            `https://apis.data.go.kr/1741000/StanReginCd/getStanReginCdList?pageNo=1&numOfRows=5&type=json&locatadd_nm=${encodeURIComponent(regionQuery)}`,
+            keyCandidate,
+            1
+          );
+          const regItem = regRes.ok
+            ? (regRes.json?.StanReginCd?.[1]?.row?.[0] || normalizeDataGoKrItems(regRes.json)[0])
+            : null;
+          const regionCd = String(regItem?.region_cd || '').replace(/\D/g, '');
+          if (regionCd.length >= 10) {
+            parcel = {
+              sigunguCd: regionCd.slice(0, 5),
+              bjdongCd: regionCd.slice(5, 10),
+              platGbCd: jibunMatch[2] ? '1' : '0',
+              bun: jibunMatch[3].padStart(4, '0'),
+              ji: (jibunMatch[4] || '0').padStart(4, '0'),
+            };
+            break;
+          }
         }
+      } catch {
+        // Ignore StanReginCd lookup failure
       }
     }
 
@@ -769,7 +862,7 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
     }
 
     if (!titleCall.ok) {
-      res.status(502).json({
+      res.json({
         success: false,
         code: 'UPSTREAM_ERROR',
         upstreamCode: titleCall.errorCode,
@@ -857,6 +950,7 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
         mappedBuildingUse: string;
         zoning?: string;
         source: 'api';
+        _hasExclusiveMeta: boolean;
       }
     >();
 
@@ -866,39 +960,49 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
       if (!hoNm) continue;
 
       const floorNumber = parseFloorNumber(row.flrNo, row.flrGbCdNm, row.flrNoNm);
-      const floorLabel =
-        String(row.flrNoNm || '').trim() ||
-        (floorNumber < 0 ? `지하 ${Math.abs(floorNumber)}층` : `${floorNumber}층`);
+      const rawFloorLabel = String(row.flrNoNm || '').trim();
+      const normalizedFloorLabel =
+        rawFloorLabel && rawFloorLabel !== '각층'
+          ? rawFloorLabel
+          : floorNumber < 0
+          ? `지하 ${Math.abs(floorNumber)}층`
+          : `${floorNumber}층`;
       const key = `${dongNm}::${floorNumber}::${hoNm}`;
       const areaVal = Number(row.area || 0);
       const isExclusive = String(row.exposPubuseGbCdNm || '').includes('전유') || row.exposPubuseGbCd === '1';
+      const rowMainPurpose = String(row.mainPurpsCdNm || '').trim();
+      const rowEtcPurpose = String(row.etcPurps || '').trim();
 
       const existing = unitMap.get(key);
       if (!existing) {
-        const mainPurpose = String(row.mainPurpsCdNm || '').trim();
-        const etcPurpose = String(row.etcPurps || '').trim();
         unitMap.set(key, {
           id: `api-unit-${key}`,
           kind: 'unit',
           dongNm,
           hoNm,
           floorNumber,
-          floorLabel,
+          floorLabel: normalizedFloorLabel,
           exclusiveAreaSqm: isExclusive ? areaVal : 0,
           commonAreaSqm: isExclusive ? 0 : areaVal,
-          mainPurpose,
-          etcPurpose,
-          mappedBuildingUse: mapBuildingUseFromPurpose(mainPurpose, etcPurpose),
+          mainPurpose: rowMainPurpose,
+          etcPurpose: rowEtcPurpose,
+          mappedBuildingUse: mapBuildingUseFromPurpose(rowMainPurpose, rowEtcPurpose),
           zoning: zoningInfo.zoning || undefined,
           source: 'api',
+          _hasExclusiveMeta: isExclusive && Boolean(rowMainPurpose || rowEtcPurpose),
         });
       } else {
         if (isExclusive) {
           existing.exclusiveAreaSqm = Math.round((existing.exclusiveAreaSqm + areaVal) * 100) / 100;
-          if (!existing.mainPurpose && row.mainPurpsCdNm) {
-            existing.mainPurpose = String(row.mainPurpsCdNm).trim();
-            existing.etcPurpose = String(row.etcPurps || '').trim();
-            existing.mappedBuildingUse = mapBuildingUseFromPurpose(existing.mainPurpose, existing.etcPurpose);
+          // Prefer exclusive-part (전유) floor label & purpose over common-part (공용) metadata
+          if (!existing._hasExclusiveMeta && (rowMainPurpose || rowEtcPurpose)) {
+            existing.mainPurpose = rowMainPurpose;
+            existing.etcPurpose = rowEtcPurpose;
+            existing.mappedBuildingUse = mapBuildingUseFromPurpose(rowMainPurpose, rowEtcPurpose);
+            existing._hasExclusiveMeta = true;
+          }
+          if (rawFloorLabel && rawFloorLabel !== '각층') {
+            existing.floorLabel = rawFloorLabel;
           }
         } else {
           existing.commonAreaSqm = Math.round((existing.commonAreaSqm + areaVal) * 100) / 100;
@@ -906,7 +1010,9 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
       }
     }
 
-    let units: any[] = Array.from(unitMap.values()).filter((u) => u.exclusiveAreaSqm > 0);
+    let units: any[] = Array.from(unitMap.values())
+      .filter((u) => u.exclusiveAreaSqm > 0)
+      .map(({ _hasExclusiveMeta, ...rest }) => rest);
 
     // Fallback to floor summary (일반건축물 층별개요) if no strata 호실 exists
     if (units.length === 0 && floorItems.length > 0) {
@@ -950,10 +1056,10 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
     });
   } catch (error: any) {
     console.error('Building register lookup error:', error);
-    res.status(500).json({
+    res.json({
       success: false,
       code: 'SERVER_ERROR',
-      message: error?.message || '건축물대장 호실 조회 중 오류가 발생했습니다.',
+      message: '건축물대장 호실 조회 중 일시적인 서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
     });
   }
 });

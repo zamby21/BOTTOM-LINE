@@ -228,6 +228,7 @@ export const S2Input: React.FC<S2InputProps> = ({
   const [manualZoning, setManualZoning] = useState<ZoningType>(candidate.zoning);
   const candidateRef = useRef<CandidateLocation>(candidate);
   candidateRef.current = candidate;
+  const unitFetchReqIdRef = useRef(0);
 
   // 위치 입력 방법 상태 (인라인 다음 주소 검색 + 시·도/시·군·구/읍·면·동/리 색인)
   const [isInlinePostcodeOpen, setIsInlinePostcodeOpen] = useState(false);
@@ -554,21 +555,71 @@ export const S2Input: React.FC<S2InputProps> = ({
     targetBcode?: string
   ) => {
     if (!targetAddress.trim()) return;
+    const reqId = ++unitFetchReqIdRef.current;
     setIsLoadingUnits(true);
     setUnitStatusMessage(null);
     setUnitStatusCode(null);
 
     try {
-      const response = await fetch('/api/building-register/units', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          address: targetAddress,
-          jibunAddress: targetJibun || '',
-          bcode: targetBcode || '',
-        }),
-      });
-      const json = await response.json();
+      let json: any = null;
+      let lastFriendlyError = '건축물대장 서버 응답이 일시적으로 지연되었습니다. 잠시 후 다시 시도해주세요.';
+
+      const maxAttempts = 2;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const response = await fetch('/api/building-register/units', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              address: targetAddress,
+              jibunAddress: targetJibun || '',
+              bcode: targetBcode || '',
+            }),
+          });
+
+          const rawText = await response.text();
+          let parsed: any = null;
+          if (rawText.trim().startsWith('{') || rawText.trim().startsWith('[')) {
+            try {
+              parsed = JSON.parse(rawText);
+            } catch {
+              parsed = null;
+            }
+          }
+
+          if (parsed && typeof parsed === 'object') {
+            json = parsed;
+            break;
+          }
+
+          // Non-JSON proxy/server error (e.g., "A server error has occurred" or HTML 502/503 page)
+          lastFriendlyError =
+            response.status >= 500
+              ? '서버 또는 공공데이터포털 응답이 일시적으로 중단되었습니다. 잠시 후 [다시 시도]를 눌러주세요.'
+              : '건축물대장 API에서 올바른 JSON 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.';
+        } catch {
+          lastFriendlyError = '건축물대장 API 통신 중 일시적인 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
+        }
+
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 650));
+          if (reqId !== unitFetchReqIdRef.current) return;
+        }
+      }
+
+      if (reqId !== unitFetchReqIdRef.current) return;
+
+      if (!json) {
+        setBuildingTitle(null);
+        setApiUnits([]);
+        setUnitStatusCode('SERVER_ERROR');
+        setUnitStatusMessage(lastFriendlyError);
+        return;
+      }
+
       if (json.success) {
         const titleData = json.buildingTitle || null;
         setBuildingTitle(titleData);
@@ -605,13 +656,16 @@ export const S2Input: React.FC<S2InputProps> = ({
         setUnitStatusCode(json.code || 'SERVER_ERROR');
         setUnitStatusMessage(json.message || '건축물대장 호실 정보를 불러오지 못했습니다.');
       }
-    } catch (err: any) {
+    } catch {
+      if (reqId !== unitFetchReqIdRef.current) return;
       setBuildingTitle(null);
       setApiUnits([]);
       setUnitStatusCode('SERVER_ERROR');
-      setUnitStatusMessage(err?.message || '건축물대장 API 통신 중 오류가 발생했습니다.');
+      setUnitStatusMessage('건축물대장 API 통신 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
-      setIsLoadingUnits(false);
+      if (reqId === unitFetchReqIdRef.current) {
+        setIsLoadingUnits(false);
+      }
     }
   };
 
@@ -1375,6 +1429,22 @@ export const S2Input: React.FC<S2InputProps> = ({
                     <span>{unitStatusMessage}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 pl-6 text-[11px]">
+                    {(unitStatusCode === 'SERVER_ERROR' || unitStatusCode === 'UPSTREAM_ERROR') && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          fetchBuildingRegisterUnits(
+                            candidate.address,
+                            candidate.parcelInfo?.jibunAddress,
+                            candidate.parcelInfo?.bcode
+                          )
+                        }
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 border border-blue-200 font-bold text-blue-700 hover:bg-blue-100 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        다시 시도
+                      </button>
+                    )}
                     {unitStatusCode === 'PARCEL_CODE_REQUIRED' && (
                       <button
                         type="button"
