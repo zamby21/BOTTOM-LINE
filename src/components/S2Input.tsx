@@ -25,6 +25,7 @@ import {
 } from '../utils/regulatoryPredictor';
 import { AddressSearchModal, AddressSearchResult } from './AddressSearchModal';
 import { VerificationLinksCard } from './VerificationLinksCard';
+import { NgiiCandidateMap } from './NgiiCandidateMap';
 import {
   KOREA_REGIONS,
   searchKoreaRegions,
@@ -784,7 +785,7 @@ export const S2Input: React.FC<S2InputProps> = ({
   const isDepositOver = convertedDeposit > regionLimit;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-12">
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
       {/* Daum/Kakao Postcode Address Search Modal */}
       <AddressSearchModal
         isOpen={isAddressModalOpen}
@@ -853,35 +854,7 @@ export const S2Input: React.FC<S2InputProps> = ({
           </div>
         </div>
 
-        {/* 후보지 식별 별칭 + 상세 호실 */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              후보지 식별 별칭 / 상호
-            </label>
-            <input
-              type="text"
-              value={candidate.name}
-              onChange={(e) => onChange({ ...candidate, name: e.target.value })}
-              placeholder="예: 성수동 연무장길 1층 카페"
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">
-              상세 호실 (층·호수)
-            </label>
-            <input
-              type="text"
-              value={candidate.detailAddress || ''}
-              onChange={(e) => onChange({ ...candidate, detailAddress: e.target.value })}
-              placeholder="예: 지상 1층 101호 (하단 건축물대장 호실 선택 시 자동입력)"
-              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-            />
-          </div>
-        </div>
-
-        {/* 2-Column Location (주소검색 + 색인) & Tax Industry (대·중·소분류) */}
+        {/* 2-Column Layout: Left = All Candidate Inputs (별칭 → 위치 → 상세 호실 → 세무서 기준 업종), Right = 국토지리정보원 영상·배경지도 뷰 */}
         {(() => {
           const locationMatches = showLocationAutocomplete ? searchKoreaRegions(candidate.address, 10) : [];
           const currentSidoObj = KOREA_REGIONS.find((s) => s.name === selectedSido);
@@ -897,315 +870,356 @@ export const S2Input: React.FC<S2InputProps> = ({
           const selectedTaxItem = TAX_INDUSTRY_TAXONOMY.find((i) => i.id === selectedTaxItemId);
 
           return (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-              {/* LEFT: 분석 지역 / 후보지 위치 (주소검색 또는 지역 색인) */}
-              <div className="space-y-2.5">
-                <label className="block text-xs font-bold text-slate-800">
-                  분석 지역 (후보지 위치) <span className="text-rose-500">*</span>
-                </label>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* LEFT COLUMN: 후보지 별칭 → 분석 지역(위치) → 상세 호실 → 세무서 기준 업종 */}
+              <div className="lg:col-span-6 space-y-4">
+                {/* 후보지 식별 별칭 / 상호 */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    후보지 식별 별칭 / 상호
+                  </label>
+                  <input
+                    type="text"
+                    value={candidate.name}
+                    onChange={(e) => onChange({ ...candidate, name: e.target.value })}
+                    placeholder="예: 성수동 연무장길 1층 카페"
+                    className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  />
+                </div>
 
-                <div className="flex flex-col sm:flex-row gap-2 items-stretch">
-                  <div className="relative flex-1">
+                {/* 분석 지역 / 후보지 위치 (주소검색 또는 지역 색인) */}
+                <div className="space-y-2.5">
+                  <label className="block text-xs font-bold text-slate-800">
+                    분석 지역 (후보지 위치) <span className="text-rose-500">*</span>
+                  </label>
+
+                  <div className="flex flex-col sm:flex-row gap-2 items-stretch">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={candidate.address}
+                        onFocus={() => setShowLocationAutocomplete(true)}
+                        onBlur={() => setTimeout(() => setShowLocationAutocomplete(false), 180)}
+                        onChange={(e) => {
+                          handleAddressChange(e.target.value);
+                          setShowLocationAutocomplete(true);
+                        }}
+                        placeholder="예: 성수동2가, 강남구, 부산 해운대구"
+                        className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white"
+                      />
+                      {locationMatches.length > 0 && (
+                        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
+                          {locationMatches.map((m, i) => (
+                            <button
+                              key={`${m.fullLabel}-${i}`}
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handlePickLocationAutocomplete(m);
+                              }}
+                              className="w-full px-3 py-2 text-left text-xs hover:bg-emerald-50 flex items-center justify-between gap-2 cursor-pointer"
+                            >
+                              <span className="font-semibold text-slate-800">{m.fullLabel}</span>
+                              <span className="text-[10px] text-emerald-700 font-bold">색인 선택</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsInlinePostcodeOpen((prev) => !prev)}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all whitespace-nowrap cursor-pointer ${
+                        isInlinePostcodeOpen
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                          : 'border-emerald-500 bg-white hover:bg-emerald-50 text-emerald-700'
+                      }`}
+                    >
+                      {isInlinePostcodeOpen ? '주소 검색 닫기' : '주소 검색 열기'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                    <span>직접 입력하여 검색하거나 목록에서 선택하세요.</span>
+                    <span>주소 검색으로 자동 입력</span>
+                  </div>
+
+                  {/* Inline Embedded Kakao Postcode Box */}
+                  {isInlinePostcodeOpen && (
+                    <div className="rounded-xl border border-slate-300 bg-white overflow-hidden shadow-xs">
+                      <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600 flex items-center justify-between">
+                        <span>도로명이나 지번을 검색하고 주소를 선택해주세요. (건축물대장 호실 자동 연동)</span>
+                        <button
+                          type="button"
+                          onClick={() => setIsInlinePostcodeOpen(false)}
+                          className="text-slate-400 hover:text-slate-700 font-bold"
+                        >
+                          닫기
+                        </button>
+                      </div>
+                      <div className="relative w-full h-[380px]">
+                        <div ref={inlinePostcodeRef} className="w-full h-full" />
+                        {!inlineDaumLoaded && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-500 text-xs gap-2">
+                            <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                            <span>카카오 우편번호 검색창을 불러오는 중...</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 지역 목록에서 선택 (시·도 / 시·군·구 / 읍·면·동 / 리 색인) */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowRegionIndex((prev) => !prev)}
+                      className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer"
+                    >
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${showRegionIndex ? '' : '-rotate-90'}`}
+                      />
+                      지역 목록에서 선택 (행정구역 색인)
+                    </button>
+
+                    {showRegionIndex && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <select
+                          value={selectedSido}
+                          onChange={(e) => handleSelectSido(e.target.value)}
+                          aria-label="시·도 선택"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          <option value="">시·도 선택</option>
+                          {KOREA_REGIONS.map((s) => (
+                            <option key={s.name} value={s.name}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={selectedSigungu}
+                          onChange={(e) => handleSelectSigungu(e.target.value)}
+                          disabled={!selectedSido}
+                          aria-label="시·군·구 선택"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          <option value="">시·군·구 선택</option>
+                          {sigunguList.map((g) => (
+                            <option key={g.name} value={g.name}>
+                              {g.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={selectedDong}
+                          onChange={(e) => handleSelectDong(e.target.value)}
+                          disabled={!selectedSigungu}
+                          aria-label="읍·면·동 선택"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          <option value="">{selectedSigungu ? '시·군·구 전체' : '읍·면·동 선택'}</option>
+                          {dongList.map((d) => (
+                            <option key={d.name} value={d.name}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={selectedRi}
+                          onChange={(e) => handleSelectRi(e.target.value)}
+                          disabled={riList.length === 0}
+                          aria-label="리 선택"
+                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                        >
+                          <option value="">{riList.length > 0 ? '리 전체 선택' : '리 선택 없음'}</option>
+                          {riList.map((r) => (
+                            <option key={r} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 상세 호실 (층·호수) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    상세 호실 (층·호수)
+                  </label>
+                  <input
+                    type="text"
+                    value={candidate.detailAddress || ''}
+                    onChange={(e) => onChange({ ...candidate, detailAddress: e.target.value })}
+                    placeholder="예: 지상 1층 101호 (하단 건축물대장 호실 선택 시 자동입력)"
+                    className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                  />
+                </div>
+
+                {/* 업종 (세무서 업종분류 기준: 검색 + 대/중/소분류) */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-800">
+                      업종 (세무서 업종분류 기준) <span className="text-rose-500">*</span>
+                    </label>
+                    {candidate.taxIndustryCode && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        국세청 업종코드 {candidate.taxIndustryCode}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* 업종 키워드 / 업종코드 직접 검색 */}
+                  <div className="relative">
                     <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
                     <input
                       type="text"
-                      value={candidate.address}
-                      onFocus={() => setShowLocationAutocomplete(true)}
-                      onBlur={() => setTimeout(() => setShowLocationAutocomplete(false), 180)}
+                      value={industrySearchQuery}
+                      onFocus={() => setShowIndustryAutocomplete(true)}
+                      onBlur={() => setTimeout(() => setShowIndustryAutocomplete(false), 180)}
                       onChange={(e) => {
-                        handleAddressChange(e.target.value);
-                        setShowLocationAutocomplete(true);
+                        setIndustrySearchQuery(e.target.value);
+                        setShowIndustryAutocomplete(true);
                       }}
-                      placeholder="예: 성수동2가, 강남구, 부산 해운대구"
-                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white"
+                      placeholder="예: 카페, 한식, 국밥, 미용실, 편의점, 552301"
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
                     />
-                    {locationMatches.length > 0 && (
-                      <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto divide-y divide-slate-100">
-                        {locationMatches.map((m, i) => (
+                    {industryMatches.length > 0 && (
+                      <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto divide-y divide-slate-100">
+                        {industryMatches.map((item) => (
                           <button
-                            key={`${m.fullLabel}-${i}`}
+                            key={item.id}
                             type="button"
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              handlePickLocationAutocomplete(m);
+                              handleSelectTaxIndustryItem(item);
                             }}
-                            className="w-full px-3 py-2 text-left text-xs hover:bg-emerald-50 flex items-center justify-between gap-2 cursor-pointer"
+                            className="w-full px-3 py-2 text-left text-xs hover:bg-blue-50 flex items-center justify-between gap-2 cursor-pointer"
                           >
-                            <span className="font-semibold text-slate-800">{m.fullLabel}</span>
-                            <span className="text-[10px] text-emerald-700 font-bold">색인 선택</span>
+                            <div className="min-w-0">
+                              <div className="font-bold text-slate-900 truncate">{item.name}</div>
+                              <div className="text-[10px] text-slate-500">
+                                {item.major} &gt; {item.medium}
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 flex-shrink-0">
+                              {item.taxCode}
+                            </span>
                           </button>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsInlinePostcodeOpen((prev) => !prev)}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all whitespace-nowrap cursor-pointer ${
-                      isInlinePostcodeOpen
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                        : 'border-emerald-500 bg-white hover:bg-emerald-50 text-emerald-700'
-                    }`}
-                  >
-                    {isInlinePostcodeOpen ? '주소 검색 닫기' : '주소 검색 열기'}
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
-                  <span>직접 입력하여 검색하거나 목록에서 선택하세요.</span>
-                  <span>주소 검색으로 자동 입력</span>
-                </div>
-
-                {/* Inline Embedded Kakao Postcode Box */}
-                {isInlinePostcodeOpen && (
-                  <div className="rounded-xl border border-slate-300 bg-white overflow-hidden shadow-xs">
-                    <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 text-[11px] text-slate-600 flex items-center justify-between">
-                      <span>도로명이나 지번을 검색하고 주소를 선택해주세요. (건축물대장 호실 자동 연동)</span>
-                      <button
-                        type="button"
-                        onClick={() => setIsInlinePostcodeOpen(false)}
-                        className="text-slate-400 hover:text-slate-700 font-bold"
-                      >
-                        닫기
-                      </button>
-                    </div>
-                    <div className="relative w-full h-[380px]">
-                      <div ref={inlinePostcodeRef} className="w-full h-full" />
-                      {!inlineDaumLoaded && (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 text-slate-500 text-xs gap-2">
-                          <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
-                          <span>카카오 우편번호 검색창을 불러오는 중...</span>
-                        </div>
-                      )}
-                    </div>
+                  <div className="text-[11px] text-slate-500 px-0.5">
+                    직접 입력하여 검색하거나 목록에서 선택하세요. (세무서 사업자등록 업태·종목 기준)
                   </div>
-                )}
 
-                {/* 지역 목록에서 선택 (시·도 / 시·군·구 / 읍·면·동 / 리 색인) */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowRegionIndex((prev) => !prev)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer"
-                  >
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform ${showRegionIndex ? '' : '-rotate-90'}`}
-                    />
-                    지역 목록에서 선택 (행정구역 색인)
-                  </button>
+                  {/* 업종 목록에서 선택 (대분류 → 중분류 → 세부 업종(소분류)) */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowIndustryHierarchy((prev) => !prev)}
+                      className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer"
+                    >
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 transition-transform ${showIndustryHierarchy ? '' : '-rotate-90'}`}
+                      />
+                      업종 목록에서 선택
+                    </button>
 
-                  {showRegionIndex && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <select
-                        value={selectedSido}
-                        onChange={(e) => handleSelectSido(e.target.value)}
-                        aria-label="시·도 선택"
-                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">시·도 선택</option>
-                        {KOREA_REGIONS.map((s) => (
-                          <option key={s.name} value={s.name}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
+                    {showIndustryHierarchy && (
+                      <div className="space-y-2.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <select
+                            value={selectedTaxMajor}
+                            onChange={(e) => {
+                              setSelectedTaxMajor(e.target.value);
+                              setSelectedTaxMedium('');
+                              setSelectedTaxItemId('');
+                            }}
+                            aria-label="대분류 선택"
+                            className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                          >
+                            <option value="">대분류 선택</option>
+                            {TAX_MAJOR_CATEGORIES.map((major) => (
+                              <option key={major} value={major}>
+                                {major}
+                              </option>
+                            ))}
+                          </select>
 
-                      <select
-                        value={selectedSigungu}
-                        onChange={(e) => handleSelectSigungu(e.target.value)}
-                        disabled={!selectedSido}
-                        aria-label="시·군·구 선택"
-                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">시·군·구 선택</option>
-                        {sigunguList.map((g) => (
-                          <option key={g.name} value={g.name}>
-                            {g.name}
-                          </option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={selectedDong}
-                        onChange={(e) => handleSelectDong(e.target.value)}
-                        disabled={!selectedSigungu}
-                        aria-label="읍·면·동 선택"
-                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">{selectedSigungu ? '시·군·구 전체' : '읍·면·동 선택'}</option>
-                        {dongList.map((d) => (
-                          <option key={d.name} value={d.name}>
-                            {d.name}
-                          </option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={selectedRi}
-                        onChange={(e) => handleSelectRi(e.target.value)}
-                        disabled={riList.length === 0}
-                        aria-label="리 선택"
-                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">{riList.length > 0 ? '리 전체 선택' : '리 선택 없음'}</option>
-                        {riList.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* RIGHT: 업종 (세무서 업종분류 기준: 검색 + 대/중/소분류) */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-slate-800">
-                    업종 (세무서 업종분류 기준) <span className="text-rose-500">*</span>
-                  </label>
-                  {candidate.taxIndustryCode && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
-                      국세청 업종코드 {candidate.taxIndustryCode}
-                    </span>
-                  )}
-                </div>
-
-                {/* 업종 키워드 / 업종코드 직접 검색 */}
-                <div className="relative">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={industrySearchQuery}
-                    onFocus={() => setShowIndustryAutocomplete(true)}
-                    onBlur={() => setTimeout(() => setShowIndustryAutocomplete(false), 180)}
-                    onChange={(e) => {
-                      setIndustrySearchQuery(e.target.value);
-                      setShowIndustryAutocomplete(true);
-                    }}
-                    placeholder="예: 카페, 한식, 국밥, 미용실, 편의점, 552301"
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
-                  />
-                  {industryMatches.length > 0 && (
-                    <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-60 overflow-y-auto divide-y divide-slate-100">
-                      {industryMatches.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            handleSelectTaxIndustryItem(item);
-                          }}
-                          className="w-full px-3 py-2 text-left text-xs hover:bg-blue-50 flex items-center justify-between gap-2 cursor-pointer"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-bold text-slate-900 truncate">{item.name}</div>
-                            <div className="text-[10px] text-slate-500">
-                              {item.major} &gt; {item.medium}
-                            </div>
-                          </div>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 flex-shrink-0">
-                            {item.taxCode}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-[11px] text-slate-500 px-0.5">
-                  직접 입력하여 검색하거나 목록에서 선택하세요. (세무서 사업자등록 업태·종목 기준)
-                </div>
-
-                {/* 업종 목록에서 선택 (대분류 → 중분류 → 세부 업종(소분류)) */}
-                <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 space-y-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowIndustryHierarchy((prev) => !prev)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer"
-                  >
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform ${showIndustryHierarchy ? '' : '-rotate-90'}`}
-                    />
-                    업종 목록에서 선택
-                  </button>
-
-                  {showIndustryHierarchy && (
-                    <div className="space-y-2.5">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <select
-                          value={selectedTaxMajor}
-                          onChange={(e) => {
-                            setSelectedTaxMajor(e.target.value);
-                            setSelectedTaxMedium('');
-                            setSelectedTaxItemId('');
-                          }}
-                          aria-label="대분류 선택"
-                          className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                        >
-                          <option value="">대분류 선택</option>
-                          {TAX_MAJOR_CATEGORIES.map((major) => (
-                            <option key={major} value={major}>
-                              {major}
-                            </option>
-                          ))}
-                        </select>
+                          <select
+                            value={selectedTaxMedium}
+                            onChange={(e) => {
+                              setSelectedTaxMedium(e.target.value);
+                              setSelectedTaxItemId('');
+                            }}
+                            disabled={!selectedTaxMajor}
+                            aria-label="중분류 선택"
+                            className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
+                          >
+                            <option value="">중분류 선택</option>
+                            {mediumList.map((med) => (
+                              <option key={med} value={med}>
+                                {med}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
                         <select
-                          value={selectedTaxMedium}
+                          value={selectedTaxItemId}
                           onChange={(e) => {
-                            setSelectedTaxMedium(e.target.value);
-                            setSelectedTaxItemId('');
+                            const found = subList.find((item) => item.id === e.target.value);
+                            if (found) handleSelectTaxIndustryItem(found);
                           }}
-                          disabled={!selectedTaxMajor}
-                          aria-label="중분류 선택"
+                          disabled={!selectedTaxMedium}
+                          aria-label="실제 운영할 세부 업종 선택"
                           className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
                         >
-                          <option value="">중분류 선택</option>
-                          {mediumList.map((med) => (
-                            <option key={med} value={med}>
-                              {med}
+                          <option value="">실제 운영할 세부 업종 선택</option>
+                          {subList.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name} (코드 {item.taxCode})
                             </option>
                           ))}
                         </select>
                       </div>
+                    )}
+                  </div>
 
-                      <select
-                        value={selectedTaxItemId}
-                        onChange={(e) => {
-                          const found = subList.find((item) => item.id === e.target.value);
-                          if (found) handleSelectTaxIndustryItem(found);
-                        }}
-                        disabled={!selectedTaxMedium}
-                        aria-label="실제 운영할 세부 업종 선택"
-                        className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white disabled:bg-slate-100 disabled:text-slate-400 text-slate-800 font-medium focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="">실제 운영할 세부 업종 선택</option>
-                        {subList.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} (코드 {item.taxCode})
-                          </option>
-                        ))}
-                      </select>
+                  <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-200/80 text-[11px] text-blue-900 space-y-0.5">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                      <span>
+                        선택 업종: {candidate.businessName}
+                        {selectedTaxItem ? ` (${selectedTaxItem.major} > ${selectedTaxItem.medium} · ${selectedTaxItem.taxCode})` : ''}
+                      </span>
                     </div>
-                  )}
+                    <div className="text-blue-700 pl-5">
+                      권장 건축법상 용도:{' '}
+                      {selectedTaxItem?.buildingUseNote || BUSINESS_REQUIRED_BUILDING_USE[candidate.businessType]}
+                    </div>
+                  </div>
                 </div>
+              </div>
 
-                <div className="p-2.5 rounded-xl bg-blue-50/60 border border-blue-200/80 text-[11px] text-blue-900 space-y-0.5">
-                  <div className="font-bold flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-                    <span>
-                      선택 업종: {candidate.businessName}
-                      {selectedTaxItem ? ` (${selectedTaxItem.major} > ${selectedTaxItem.medium} · ${selectedTaxItem.taxCode})` : ''}
-                    </span>
-                  </div>
-                  <div className="text-blue-700 pl-5">
-                    권장 건축법상 용도:{' '}
-                    {selectedTaxItem?.buildingUseNote || BUSINESS_REQUIRED_BUILDING_USE[candidate.businessType]}
-                  </div>
-                </div>
+              {/* RIGHT COLUMN: 국토교통부 국토지리정보원 영상지도 · 배경지도 API 후보지 지도 뷰 */}
+              <div className="lg:col-span-6 flex flex-col">
+                <NgiiCandidateMap
+                  address={candidate.address}
+                  jibunAddress={candidate.parcelInfo?.jibunAddress}
+                  buildingName={buildingTitle?.buildingName || candidate.parcelInfo?.buildingName}
+                  candidateName={candidate.name}
+                />
               </div>
             </div>
           );

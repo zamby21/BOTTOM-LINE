@@ -958,6 +958,399 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
   }
 });
 
+// ============================================================
+// 국토교통부 국토지리정보원 영상지도 · 배경지도 API 프록시 & 지오코딩
+// ============================================================
+
+const ALLOWED_NGII_LAYERS = new Set([
+  'korean_map',
+  'satellite_map',
+  'air',
+  'hybrid_map',
+  'white_map',
+  'color_map',
+  'lowV_map',
+]);
+
+const geocodeCache = new Map<
+  string,
+  {
+    lat: number;
+    lng: number;
+    matchedQuery: string;
+    precision: 'exact' | 'road' | 'dong' | 'sigungu';
+    source: string;
+  }
+>();
+
+function expandKoreanSidoAbbrev(addr: string): string {
+  return addr
+    .replace(/^서울\s+/, '서울특별시 ')
+    .replace(/^부산\s+/, '부산광역시 ')
+    .replace(/^대구\s+/, '대구광역시 ')
+    .replace(/^인천\s+/, '인천광역시 ')
+    .replace(/^광주\s+/, '광주광역시 ')
+    .replace(/^대전\s+/, '대전광역시 ')
+    .replace(/^울산\s+/, '울산광역시 ')
+    .replace(/^세종\s+/, '세종특별자치시 ')
+    .replace(/^경기\s+/, '경기도 ')
+    .replace(/^강원\s+/, '강원특별자치도 ')
+    .replace(/^충북\s+/, '충청북도 ')
+    .replace(/^충남\s+/, '충청남도 ')
+    .replace(/^전북\s+/, '전북특별자치도 ')
+    .replace(/^전남\s+/, '전라남도 ')
+    .replace(/^경북\s+/, '경상북도 ')
+    .replace(/^경남\s+/, '경상남도 ')
+    .replace(/^제주\s+/, '제주특별자치도 ');
+}
+
+function buildKoreanGeocodeCandidates(
+  address: string,
+  jibunAddress?: string,
+  buildingName?: string
+): Array<{ query: string; precision: 'exact' | 'road' | 'dong' | 'sigungu' }> {
+  const candidates: Array<{ query: string; precision: 'exact' | 'road' | 'dong' | 'sigungu' }> = [];
+  const seen = new Set<string>();
+  const push = (q: string, precision: 'exact' | 'road' | 'dong' | 'sigungu') => {
+    const clean = q.replace(/\s+/g, ' ').trim();
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      candidates.push({ query: clean, precision });
+    }
+  };
+
+  const rawRoad = (address || '').split('(')[0].trim();
+  const rawJibun = (jibunAddress || '').split('(')[0].trim();
+  const expRoad = expandKoreanSidoAbbrev(rawRoad);
+  const expJibun = expandKoreanSidoAbbrev(rawJibun);
+
+  // 1. Exact road / jibun addresses
+  if (expRoad) push(expRoad, 'exact');
+  if (expJibun) push(expJibun, 'exact');
+
+  // 2. Road name without building number (e.g., "경기도 용인시 수지구 죽전로")
+  const roadWithoutNum = expRoad.replace(/\s+\d+(?:-\d+)?\s*$/, '').trim();
+  if (roadWithoutNum && roadWithoutNum !== expRoad) {
+    push(roadWithoutNum, 'road');
+  }
+
+  // 3. Dong / Eup / Myeon from jibun or road
+  const jibunWithoutNum = expJibun.replace(/\s+(?:산\s*)?\d+(?:-\d+)?\s*$/, '').trim();
+  if (jibunWithoutNum && jibunWithoutNum !== expJibun) {
+    push(jibunWithoutNum, 'dong');
+  }
+
+  // Extract dong/eup/myeon inside parentheses if present e.g. "(죽전동)"
+  const parenMatch = (address || '').match(/\(([^)]+)\)/);
+  if (parenMatch) {
+    const tokens = parenMatch[1].split(/[,\s]+/).filter(Boolean);
+    const dongToken = tokens.find((t) => /(?:동|읍|면|가)$/.test(t));
+    if (dongToken) {
+      const prefixTokens = expRoad.split(/\s+/).slice(0, 3);
+      push(`${prefixTokens.join(' ')} ${dongToken}`, 'dong');
+    }
+  }
+
+  // 4. Building name + sigungu
+  if (buildingName && buildingName.trim()) {
+    const prefix = expRoad.split(/\s+/).slice(0, 2).join(' ');
+    push(`${prefix} ${buildingName.trim()}`, 'road');
+  }
+
+  // 5. Fallback to sigungu / first 2-3 administrative tokens
+  const adminTokens = expRoad.split(/\s+/).filter(Boolean);
+  if (adminTokens.length >= 3) {
+    push(adminTokens.slice(0, 3).join(' '), 'dong');
+  }
+  if (adminTokens.length >= 2) {
+    push(adminTokens.slice(0, 2).join(' '), 'sigungu');
+  }
+  if (adminTokens.length >= 1) {
+    push(adminTokens[0], 'sigungu');
+  }
+
+  return candidates;
+}
+
+app.get('/api/map/config', (_req: Request, res: Response) => {
+  const ngiiKey = (process.env.NGII_API_KEY || process.env.NGII_MAP_API_KEY || '').trim();
+  const vworldKey = (process.env.VWORLD_API_KEY || '').trim();
+
+  const tileMode = ngiiKey ? 'ngii' : vworldKey ? 'vworld' : 'public';
+  const providerName =
+    tileMode === 'ngii'
+      ? '국토교통부 국토지리정보원 WMTS (바로e맵)'
+      : tileMode === 'vworld'
+      ? '국토교통부 VWorld 공간정보 WMTS'
+      : '표준 배경·위성지도 (NGII_API_KEY 등록 시 국토지리정보원 WMTS 자동 연동)';
+
+  res.json({
+    success: true,
+    ngiiConfigured: Boolean(ngiiKey),
+    vworldConfigured: Boolean(vworldKey),
+    tileMode,
+    providerName,
+  });
+});
+
+app.get('/api/map/ngii-tile', async (req: Request, res: Response) => {
+  try {
+    const ngiiKey = (process.env.NGII_API_KEY || process.env.NGII_MAP_API_KEY || '').trim();
+    if (!ngiiKey) {
+      res.status(503).json({
+        success: false,
+        code: 'NGII_API_KEY_MISSING',
+        error: '서버에 NGII_API_KEY가 설정되어 있지 않습니다.',
+      });
+      return;
+    }
+
+    const layer = String(req.query.layer || 'korean_map').trim();
+    const tilematrix = String(req.query.tilematrix || 'L15').trim();
+    const tilerow = String(req.query.tilerow || '').trim();
+    const tilecol = String(req.query.tilecol || '').trim();
+
+    if (!ALLOWED_NGII_LAYERS.has(layer)) {
+      res.status(400).send('Invalid layer');
+      return;
+    }
+    if (!/^L\d{2}$/.test(tilematrix) || !/^\d+$/.test(tilerow) || !/^\d+$/.test(tilecol)) {
+      res.status(400).send('Invalid tile parameters');
+      return;
+    }
+
+    const fetchNgiiLayer = async (targetLayer: string) => {
+      const format =
+        targetLayer === 'satellite_map' || targetLayer === 'air' ? 'image/jpeg' : 'image/png';
+      const params = new URLSearchParams({
+        service: 'WMTS',
+        request: 'GetTile',
+        version: '1.0.0',
+        layer: targetLayer,
+        style: 'korean',
+        format,
+        tilematrixset: 'korean',
+        tilematrix,
+        tilerow,
+        tilecol,
+        apikey: ngiiKey,
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const upstream = await fetch(
+          `https://map.ngii.go.kr/openapi/Gettile.do?${params.toString()}`,
+          {
+            signal: controller.signal,
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+              Referer: 'https://map.ngii.go.kr/',
+            },
+          }
+        );
+        const contentType = upstream.headers.get('content-type') || '';
+        if (upstream.ok && contentType.startsWith('image/')) {
+          const buf = Buffer.from(await upstream.arrayBuffer());
+          return { ok: true as const, buf, contentType };
+        }
+        return { ok: false as const, status: upstream.status };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    let tileRes = await fetchNgiiLayer(layer);
+    if (!tileRes.ok && layer === 'satellite_map') {
+      tileRes = await fetchNgiiLayer('air');
+    }
+
+    if (!tileRes.ok) {
+      res.status(502).send('NGII tile unavailable');
+      return;
+    }
+
+    res.setHeader('Content-Type', tileRes.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(tileRes.buf);
+  } catch (err: any) {
+    res.status(502).send(err?.message || 'NGII tile proxy error');
+  }
+});
+
+app.get('/api/map/vworld-tile', async (req: Request, res: Response) => {
+  try {
+    const vworldKey = (process.env.VWORLD_API_KEY || '').trim();
+    if (!vworldKey) {
+      res.status(503).send('VWORLD_API_KEY missing');
+      return;
+    }
+    const layer = String(req.query.layer || 'Base').trim();
+    const z = String(req.query.z || '').trim();
+    const y = String(req.query.y || '').trim();
+    const x = String(req.query.x || '').trim();
+
+    if (!['Base', 'Satellite', 'Hybrid'].includes(layer) || !/^\d+$/.test(z) || !/^\d+$/.test(y) || !/^\d+$/.test(x)) {
+      res.status(400).send('Invalid VWorld tile params');
+      return;
+    }
+
+    const ext = layer === 'Satellite' ? 'jpeg' : 'png';
+    const upstream = await fetch(
+      `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(vworldKey)}/${layer}/${z}/${y}/${x}.${ext}`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+        },
+      }
+    );
+    const contentType = upstream.headers.get('content-type') || '';
+    if (!upstream.ok || !contentType.startsWith('image/')) {
+      res.status(502).send('VWorld tile unavailable');
+      return;
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(buf);
+  } catch (err: any) {
+    res.status(502).send(err?.message || 'VWorld tile proxy error');
+  }
+});
+
+app.post('/api/map/geocode', async (req: Request, res: Response) => {
+  try {
+    const { address, jibunAddress, buildingName } = req.body || {};
+    const rawAddress = String(address || '').trim();
+    const rawJibun = String(jibunAddress || '').trim();
+    const rawBuilding = String(buildingName || '').trim();
+
+    if (!rawAddress && !rawJibun) {
+      res.status(400).json({ success: false, error: '주소가 비어 있습니다.' });
+      return;
+    }
+
+    const cacheKey = `${rawAddress}||${rawJibun}||${rawBuilding}`;
+    const cached = geocodeCache.get(cacheKey);
+    if (cached) {
+      res.json({ success: true, ...cached });
+      return;
+    }
+
+    // 1. Kakao Local Address API (sub-meter accuracy for Korean road & jibun addresses)
+    if (process.env.KAKAO_REST_API_KEY) {
+      const kakaoQuery = rawAddress.split('(')[0].trim() || rawJibun;
+      const kakaoRes = await fetch(
+        `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(kakaoQuery)}`,
+        { headers: { Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}` } }
+      );
+      if (kakaoRes.ok) {
+        const kakaoJson: any = await kakaoRes.json();
+        const doc = kakaoJson?.documents?.[0];
+        if (doc?.y && doc?.x) {
+          const result = {
+            lat: parseFloat(doc.y),
+            lng: parseFloat(doc.x),
+            matchedQuery: doc.address_name || kakaoQuery,
+            precision: 'exact' as const,
+            source: 'Kakao Local',
+          };
+          geocodeCache.set(cacheKey, result);
+          res.json({ success: true, ...result });
+          return;
+        }
+      }
+    }
+
+    // 2. VWorld Official MOLIT Geocoder API (if VWORLD_API_KEY configured)
+    if (process.env.VWORLD_API_KEY) {
+      for (const [type, addrVal] of [
+        ['road', rawAddress.split('(')[0].trim()],
+        ['parcel', rawJibun.split('(')[0].trim()],
+      ] as const) {
+        if (!addrVal) continue;
+        const vwParams = new URLSearchParams({
+          service: 'address',
+          request: 'getcoord',
+          version: '2.0',
+          crs: 'epsg:4326',
+          address: addrVal,
+          refine: 'true',
+          simple: 'false',
+          format: 'json',
+          type,
+          key: process.env.VWORLD_API_KEY,
+        });
+        const vwRes = await fetch(`https://api.vworld.kr/req/address?${vwParams.toString()}`);
+        if (vwRes.ok) {
+          const vwJson: any = await vwRes.json();
+          const point = vwJson?.response?.result?.point;
+          if (vwJson?.response?.status === 'OK' && point?.y && point?.x) {
+            const result = {
+              lat: parseFloat(point.y),
+              lng: parseFloat(point.x),
+              matchedQuery: addrVal,
+              precision: 'exact' as const,
+              source: '국토교통부 VWorld',
+            };
+            geocodeCache.set(cacheKey, result);
+            res.json({ success: true, ...result });
+            return;
+          }
+        }
+      }
+    }
+
+    // 3. OpenStreetMap Nominatim progressive Korean query cascade
+    const queries = buildKoreanGeocodeCandidates(rawAddress, rawJibun, rawBuilding);
+    for (const item of queries) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      try {
+        const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=kr&accept-language=ko&q=${encodeURIComponent(
+          item.query
+        )}`;
+        const nomRes = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'BottomLineCommercialRealEstateApp/1.0',
+          },
+        });
+        if (nomRes.ok) {
+          const list: any = await nomRes.json();
+          const first = Array.isArray(list) ? list[0] : null;
+          if (first?.lat && first?.lon) {
+            const result = {
+              lat: parseFloat(first.lat),
+              lng: parseFloat(first.lon),
+              matchedQuery: item.query,
+              precision: item.precision,
+              source: 'OSM Nominatim',
+            };
+            geocodeCache.set(cacheKey, result);
+            res.json({ success: true, ...result });
+            return;
+          }
+        }
+      } catch {
+        // continue to next broadened query
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    res.json({
+      success: false,
+      error: '입력된 주소의 좌표를 찾지 못했습니다. 도로명이나 행정동 이름을 확인하거나 지도에서 직접 위치를 클릭해 지정하세요.',
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error?.message || '좌표 변환 중 오류가 발생했습니다.',
+    });
+  }
+});
+
 async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
