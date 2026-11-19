@@ -60,7 +60,9 @@ type TileEngineMode = 'ngii' | 'vworld' | 'public';
 interface MapConfigResponse {
   success: boolean;
   ngiiConfigured: boolean;
+  ngiiReachable?: boolean;
   vworldConfigured: boolean;
+  vworldReachable?: boolean;
   tileMode: TileEngineMode;
   providerName: string;
 }
@@ -87,6 +89,75 @@ const DEFAULT_SEOUL_COORD: GeocodeCoord = {
   precision: 'sigungu',
   source: '기본 좌표',
 };
+
+function expandSidoForClientGeocode(addr: string): string {
+  return addr
+    .replace(/^서울\s+/, '서울특별시 ')
+    .replace(/^부산\s+/, '부산광역시 ')
+    .replace(/^대구\s+/, '대구광역시 ')
+    .replace(/^인천\s+/, '인천광역시 ')
+    .replace(/^광주\s+/, '광주광역시 ')
+    .replace(/^대전\s+/, '대전광역시 ')
+    .replace(/^울산\s+/, '울산광역시 ')
+    .replace(/^세종\s+/, '세종특별자치시 ')
+    .replace(/^경기\s+/, '경기도 ')
+    .replace(/^강원\s+/, '강원특별자치도 ')
+    .replace(/^충북\s+/, '충청북도 ')
+    .replace(/^충남\s+/, '충청남도 ')
+    .replace(/^전북\s+/, '전북특별자치도 ')
+    .replace(/^전남\s+/, '전라남도 ')
+    .replace(/^경북\s+/, '경상북도 ')
+    .replace(/^경남\s+/, '경상남도 ')
+    .replace(/^제주\s+/, '제주특별자치도 ');
+}
+
+async function geocodeDirectlyViaArcGis(
+  targetAddr: string,
+  targetJibun?: string
+): Promise<GeocodeCoord | null> {
+  const candidates = [
+    expandSidoForClientGeocode(targetAddr.split('(')[0].trim()),
+    expandSidoForClientGeocode((targetJibun || '').split('(')[0].trim()),
+  ].filter(Boolean);
+
+  for (const query of candidates) {
+    try {
+      const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+        query
+      )}&countryCode=KOR&outFields=Addr_type,Match_addr&maxLocations=1&f=json`;
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const best = json?.candidates?.[0];
+      if (
+        best?.location &&
+        typeof best.location.y === 'number' &&
+        typeof best.location.x === 'number' &&
+        Number(best.score || 0) >= 85
+      ) {
+        const t = String(best?.attributes?.Addr_type || '').toLowerCase();
+        const precision: GeocodeCoord['precision'] =
+          t === 'pointaddress' || t === 'subaddress' || t === 'buildingname' || t === 'poi'
+            ? 'exact'
+            : t === 'streetaddress' || t === 'streetname'
+            ? 'road'
+            : t === 'locality' || t === 'neighborhood'
+            ? 'dong'
+            : 'sigungu';
+        return {
+          lat: best.location.y,
+          lng: best.location.x,
+          matchedQuery: best?.attributes?.Match_addr || best.address || query,
+          precision,
+          source: 'ArcGIS Geocoder',
+        };
+      }
+    } catch {
+      // ignore and try next candidate
+    }
+  }
+  return null;
+}
 
 function createNgiiLayer(layerName: 'korean_map' | 'satellite_map' | 'hybrid_map', visible: boolean) {
   const tileGrid = new TileGrid({
@@ -190,14 +261,50 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
   showRadiusRef.current = showRadius;
   const activeTileModeRef = useRef(activeTileMode);
   activeTileModeRef.current = activeTileMode;
+  const geocodeReqIdRef = useRef(0);
+  const isFirstGeocodeRef = useRef(true);
 
-  // 1. Load server map API configuration (NGII_API_KEY / VWORLD_API_KEY availability)
+  const animateViewToCoord = useCallback(
+    (target: GeocodeCoord, engineMode: TileEngineMode, duration = 400) => {
+      const map = mapInstanceRef.current;
+      if (!map) return;
+      const center =
+        engineMode === 'ngii'
+          ? transform([target.lng, target.lat], 'EPSG:4326', 'EPSG:5179')
+          : fromLonLat([target.lng, target.lat]);
+      const targetZoom =
+        engineMode === 'ngii'
+          ? target.precision === 'exact'
+            ? 12
+            : target.precision === 'road'
+            ? 11
+            : target.precision === 'dong'
+            ? 9
+            : 7
+          : target.precision === 'exact'
+          ? 18
+          : target.precision === 'road'
+          ? 17
+          : target.precision === 'dong'
+          ? 15
+          : 13;
+
+      map.getView().animate({
+        center,
+        zoom: targetZoom,
+        duration,
+      });
+    },
+    []
+  );
+
+  // 1. Load server map API configuration (NGII_API_KEY / VWORLD_API_KEY availability & reachability)
   useEffect(() => {
     let active = true;
     fetch('/api/map/config')
-      .then((res) => res.json())
-      .then((json: MapConfigResponse) => {
-        if (!active) return;
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: MapConfigResponse | null) => {
+        if (!active || !json) return;
         setMapConfig(json);
         setActiveTileMode(json.tileMode || 'public');
       })
@@ -313,8 +420,9 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
       const handleTileErr = () => {
         errorCount += 1;
         if (errorCount >= 3) {
+          setActiveTileMode('public');
           setTileWarning(
-            '국토지리정보원 WMTS 타일 응답이 지연되거나 인증키가 거부되었습니다. 표준 배경·위성지도로 전환해 계속 확인할 수 있습니다.'
+            '국토지리정보원 타일 서버 응답이 제한되어 표준 배경·위성지도로 자동 전환되었습니다.'
           );
         }
       };
@@ -324,6 +432,19 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
       base = createVworldLayer('Base', layerMode === 'base');
       aerial = createVworldLayer('Satellite', layerMode === 'aerial' || layerMode === 'hybrid');
       hybridOverlay = createVworldLayer('Hybrid', layerMode === 'hybrid');
+
+      let errorCount = 0;
+      const handleTileErr = () => {
+        errorCount += 1;
+        if (errorCount >= 3) {
+          setActiveTileMode('public');
+          setTileWarning(
+            'VWorld 타일 서버 응답이 제한되어 표준 배경·위성지도로 자동 전환되었습니다.'
+          );
+        }
+      };
+      base.getSource()?.on('tileloaderror', handleTileErr);
+      aerial.getSource()?.on('tileloaderror', handleTileErr);
     } else {
       const pub = createPublicLayers(layerMode);
       base = pub.baseLayer;
@@ -343,20 +464,33 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
         ? transform([cur.lng, cur.lat], 'EPSG:4326', 'EPSG:5179')
         : fromLonLat([cur.lng, cur.lat]);
 
+    const initZoom =
+      projCode === 'EPSG:5179'
+        ? cur.precision === 'exact'
+          ? 12
+          : cur.precision === 'road'
+          ? 11
+          : 9
+        : cur.precision === 'exact'
+        ? 18
+        : cur.precision === 'road'
+        ? 17
+        : 15;
+
     const view =
       projCode === 'EPSG:5179'
         ? new View({
             projection: 'EPSG:5179',
             center: initCenter,
             resolutions: NGII_RESOLUTIONS,
-            zoom: 11, // L16 (~1.02m/px street-building level)
+            zoom: initZoom,
             minZoom: 0,
             maxZoom: NGII_RESOLUTIONS.length - 1,
           })
         : new View({
             projection: 'EPSG:3857',
             center: initCenter,
-            zoom: 17,
+            zoom: initZoom,
             minZoom: 6,
             maxZoom: 19,
           });
@@ -415,12 +549,17 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
     drawMarkerAndRings(coord, activeTileMode, showRadius, candidateName || buildingName);
   }, [coord, activeTileMode, showRadius, candidateName, buildingName, drawMarkerAndRings]);
 
-  // 5. Geocode address with debounce whenever address / jibun / buildingName changes
+  // 5. Geocode address whenever address / jibun / buildingName changes (with direct ArcGIS CORS fallback)
   const runGeocode = useCallback(
     async (targetAddr: string, targetJibun?: string, targetBuilding?: string) => {
       if (!targetAddr.trim() && !(targetJibun || '').trim()) return;
+      const reqId = ++geocodeReqIdRef.current;
       setIsGeocoding(true);
       setGeocodeError(null);
+
+      let resolved: GeocodeCoord | null = null;
+      let serverErrMsg: string | null = null;
+
       try {
         const res = await fetch('/api/map/geocode', {
           method: 'POST',
@@ -431,66 +570,53 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
             buildingName: targetBuilding || '',
           }),
         });
-        const json = await res.json();
-        if (json.success && typeof json.lat === 'number' && typeof json.lng === 'number') {
-          const next: GeocodeCoord = {
-            lat: json.lat,
-            lng: json.lng,
-            matchedQuery: json.matchedQuery || targetAddr,
-            precision: json.precision || 'road',
-            source: json.source || '좌표 변환',
-          };
-          setCoord(next);
-          setGeocodedCoord(next);
-
-          const map = mapInstanceRef.current;
-          if (map) {
-            const engine = activeTileModeRef.current;
-            const center =
-              engine === 'ngii'
-                ? transform([next.lng, next.lat], 'EPSG:4326', 'EPSG:5179')
-                : fromLonLat([next.lng, next.lat]);
-            const targetZoom =
-              engine === 'ngii'
-                ? next.precision === 'exact'
-                  ? 12
-                  : next.precision === 'road'
-                  ? 11
-                  : next.precision === 'dong'
-                  ? 9
-                  : 7
-                : next.precision === 'exact'
-                ? 18
-                : next.precision === 'road'
-                ? 17
-                : next.precision === 'dong'
-                ? 15
-                : 13;
-
-            map.getView().animate({
-              center,
-              zoom: targetZoom,
-              duration: 450,
-            });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && typeof json.lat === 'number' && typeof json.lng === 'number') {
+            resolved = {
+              lat: json.lat,
+              lng: json.lng,
+              matchedQuery: json.matchedQuery || targetAddr,
+              precision: json.precision || 'road',
+              source: json.source || '좌표 변환',
+            };
+          } else if (json.error) {
+            serverErrMsg = json.error;
           }
-        } else {
-          setGeocodeError(json.error || '주소 좌표를 찾지 못했습니다.');
         }
       } catch {
-        setGeocodeError('좌표 조회 통신 중 오류가 발생했습니다.');
-      } finally {
-        setIsGeocoding(false);
+        // Fallback to direct browser ArcGIS geocoder below
       }
+
+      if (!resolved) {
+        resolved = await geocodeDirectlyViaArcGis(targetAddr, targetJibun);
+      }
+
+      if (reqId !== geocodeReqIdRef.current) return;
+
+      if (resolved) {
+        setCoord(resolved);
+        setGeocodedCoord(resolved);
+        setGeocodeError(null);
+        animateViewToCoord(resolved, activeTileModeRef.current, 420);
+      } else {
+        setGeocodeError(
+          serverErrMsg || '입력된 주소의 좌표를 찾지 못했습니다. 지도에서 직접 클릭해 위치를 지정해주세요.'
+        );
+      }
+      setIsGeocoding(false);
     },
-    []
+    [animateViewToCoord]
   );
 
   useEffect(() => {
     const cleanAddr = (address || '').trim();
     if (!cleanAddr) return;
+    const delay = isFirstGeocodeRef.current ? 0 : 350;
+    isFirstGeocodeRef.current = false;
     const timer = setTimeout(() => {
       runGeocode(cleanAddr, jibunAddress, buildingName);
-    }, 450);
+    }, delay);
     return () => clearTimeout(timer);
   }, [address, jibunAddress, buildingName, runGeocode]);
 
@@ -703,26 +829,6 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
             </span>
           </div>
         )}
-
-        {/* Tile Error Fallback Banner (when NGII key fails) */}
-        {tileWarning && activeTileMode !== 'public' && (
-          <div className="absolute bottom-11 left-2.5 right-2.5 z-20 p-2.5 rounded-xl bg-amber-50/95 border border-amber-300 text-amber-900 text-[11px] flex items-center justify-between gap-2 shadow-sm">
-            <div className="flex items-start gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <span>{tileWarning}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTileMode('public');
-                setTileWarning(null);
-              }}
-              className="px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] whitespace-nowrap cursor-pointer"
-            >
-              표준지도 전환
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Map Footer: Coordinates, API Provider Status & Click-to-Adjust Tip */}
@@ -741,6 +847,13 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
           </div>
         )}
 
+        {tileWarning && (
+          <div className="flex items-center gap-1 text-slate-500 text-[10px]">
+            <AlertCircle className="w-3 h-3 flex-shrink-0 text-slate-400" />
+            <span>{tileWarning}</span>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px] text-slate-600">
           <span className="font-mono">
             WGS84 {coord.lat.toFixed(5)}, {coord.lng.toFixed(5)} · TM(5179) {Math.round(tmCoords[0]).toLocaleString()},{' '}
@@ -755,22 +868,20 @@ export const NgiiCandidateMap: React.FC<NgiiCandidateMapProps> = ({
               ? '국토교통부 국토지리정보원 영상·배경지도 WMTS 연동 중'
               : activeTileMode === 'vworld'
               ? '국토교통부 VWorld 영상·배경지도 WMTS 연동 중'
-              : '표준 배경·위성지도 표시 중'}
+              : '배경·영상지도 정상 표시 중'}
           </span>
-          {!mapConfig?.ngiiConfigured ? (
-            <span className="text-slate-400">
-              NGII_API_KEY 등록 시 국토지리정보원 WMTS 자동 전환
-            </span>
-          ) : activeTileMode === 'public' ? (
-            <button
-              type="button"
-              onClick={() => setActiveTileMode('ngii')}
-              className="text-blue-600 hover:underline font-bold cursor-pointer"
-            >
-              국토지리정보원 WMTS 다시 연결
-            </button>
-          ) : (
+          {activeTileMode === 'ngii' ? (
             <span className="text-emerald-700 font-bold">EPSG:5179 공식 타일</span>
+          ) : activeTileMode === 'vworld' ? (
+            <span className="text-emerald-700 font-bold">VWorld 공식 타일</span>
+          ) : mapConfig?.ngiiConfigured || mapConfig?.vworldConfigured ? (
+            <span className="text-slate-500">
+              외부 서버 IP 제한으로 표준 타일 자동 연동 · 바로e맵 원문 확인 가능
+            </span>
+          ) : (
+            <span className="text-slate-400">
+              NGII_API_KEY 등록 시 국토지리정보원 WMTS 연동
+            </span>
           )}
         </div>
       </div>

@@ -1072,22 +1072,115 @@ function buildKoreanGeocodeCandidates(
   return candidates;
 }
 
-app.get('/api/map/config', (_req: Request, res: Response) => {
+let cachedMapProbe: {
+  checkedAt: number;
+  ngiiConfigured: boolean;
+  ngiiReachable: boolean;
+  vworldConfigured: boolean;
+  vworldReachable: boolean;
+} | null = null;
+
+async function probeNgiiTileReachable(ngiiKey: string): Promise<boolean> {
+  const params = new URLSearchParams({
+    service: 'WMTS',
+    request: 'GetTile',
+    version: '1.0.0',
+    layer: 'korean_map',
+    style: 'korean',
+    format: 'image/png',
+    tilematrixset: 'korean',
+    tilematrix: 'L15',
+    tilerow: '3973',
+    tilecol: '2234',
+    apikey: ngiiKey,
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(`https://map.ngii.go.kr/openapi/Gettile.do?${params.toString()}`, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+        Referer: 'https://map.ngii.go.kr/',
+      },
+    });
+    const ct = res.headers.get('content-type') || '';
+    return res.ok && ct.startsWith('image/');
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function probeVworldTileReachable(vworldKey: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(
+      `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(vworldKey)}/Base/15/12703/27956.png`,
+      {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      }
+    );
+    const ct = res.headers.get('content-type') || '';
+    return res.ok && ct.startsWith('image/');
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+app.get('/api/map/config', async (_req: Request, res: Response) => {
   const ngiiKey = (process.env.NGII_API_KEY || process.env.NGII_MAP_API_KEY || '').trim();
   const vworldKey = (process.env.VWORLD_API_KEY || '').trim();
+  const ngiiConfigured = Boolean(ngiiKey);
+  const vworldConfigured = Boolean(vworldKey);
 
-  const tileMode = ngiiKey ? 'ngii' : vworldKey ? 'vworld' : 'public';
+  const now = Date.now();
+  if (
+    !cachedMapProbe ||
+    now - cachedMapProbe.checkedAt > 5 * 60 * 1000 ||
+    cachedMapProbe.ngiiConfigured !== ngiiConfigured ||
+    cachedMapProbe.vworldConfigured !== vworldConfigured
+  ) {
+    const [ngiiReachable, vworldReachable] = await Promise.all([
+      ngiiConfigured ? probeNgiiTileReachable(ngiiKey) : Promise.resolve(false),
+      vworldConfigured ? probeVworldTileReachable(vworldKey) : Promise.resolve(false),
+    ]);
+    cachedMapProbe = {
+      checkedAt: now,
+      ngiiConfigured,
+      ngiiReachable,
+      vworldConfigured,
+      vworldReachable,
+    };
+  }
+
+  const tileMode = cachedMapProbe.ngiiReachable
+    ? 'ngii'
+    : cachedMapProbe.vworldReachable
+    ? 'vworld'
+    : 'public';
+
   const providerName =
     tileMode === 'ngii'
       ? '국토교통부 국토지리정보원 WMTS (바로e맵)'
       : tileMode === 'vworld'
       ? '국토교통부 VWorld 공간정보 WMTS'
+      : ngiiConfigured || vworldConfigured
+      ? '표준 배경·위성지도 (국토지리정보원/VWorld 서버 외부 접근 제한으로 자동 전환)'
       : '표준 배경·위성지도 (NGII_API_KEY 등록 시 국토지리정보원 WMTS 자동 연동)';
 
   res.json({
     success: true,
-    ngiiConfigured: Boolean(ngiiKey),
-    vworldConfigured: Boolean(vworldKey),
+    ngiiConfigured,
+    ngiiReachable: cachedMapProbe.ngiiReachable,
+    vworldConfigured,
+    vworldReachable: cachedMapProbe.vworldReachable,
     tileMode,
     providerName,
   });
@@ -1196,27 +1289,51 @@ app.get('/api/map/vworld-tile', async (req: Request, res: Response) => {
     }
 
     const ext = layer === 'Satellite' ? 'jpeg' : 'png';
-    const upstream = await fetch(
-      `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(vworldKey)}/${layer}/${z}/${y}/${x}.${ext}`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-        },
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    try {
+      const upstream = await fetch(
+        `https://api.vworld.kr/req/wmts/1.0.0/${encodeURIComponent(vworldKey)}/${layer}/${z}/${y}/${x}.${ext}`,
+        {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Mozilla/5.0',
+          },
+        }
+      );
+      const contentType = upstream.headers.get('content-type') || '';
+      if (!upstream.ok || !contentType.startsWith('image/')) {
+        res.status(502).send('VWorld tile unavailable');
+        return;
       }
-    );
-    const contentType = upstream.headers.get('content-type') || '';
-    if (!upstream.ok || !contentType.startsWith('image/')) {
-      res.status(502).send('VWorld tile unavailable');
-      return;
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(buf);
+    } finally {
+      clearTimeout(timer);
     }
-    const buf = Buffer.from(await upstream.arrayBuffer());
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(buf);
   } catch (err: any) {
     res.status(502).send(err?.message || 'VWorld tile proxy error');
   }
 });
+
+function mapArcGisPrecision(addrType?: string, fallback: 'exact' | 'road' | 'dong' | 'sigungu' = 'road'): 'exact' | 'road' | 'dong' | 'sigungu' {
+  const t = String(addrType || '').toLowerCase();
+  if (t === 'pointaddress' || t === 'subaddress' || t === 'buildingname' || t === 'poi') {
+    return 'exact';
+  }
+  if (t === 'streetaddress' || t === 'streetname' || t === 'streetint') {
+    return 'road';
+  }
+  if (t === 'locality' || t === 'neighborhood' || t === 'postal') {
+    return 'dong';
+  }
+  if (t === 'subregion' || t === 'region') {
+    return 'sigungu';
+  }
+  return fallback;
+}
 
 app.post('/api/map/geocode', async (req: Request, res: Response) => {
   try {
@@ -1238,74 +1355,142 @@ app.post('/api/map/geocode', async (req: Request, res: Response) => {
     }
 
     // 1. Kakao Local Address API (sub-meter accuracy for Korean road & jibun addresses)
-    if (process.env.KAKAO_REST_API_KEY) {
-      const kakaoQuery = rawAddress.split('(')[0].trim() || rawJibun;
-      const kakaoRes = await fetch(
-        `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(kakaoQuery)}`,
-        { headers: { Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}` } }
-      );
-      if (kakaoRes.ok) {
-        const kakaoJson: any = await kakaoRes.json();
-        const doc = kakaoJson?.documents?.[0];
-        if (doc?.y && doc?.x) {
-          const result = {
-            lat: parseFloat(doc.y),
-            lng: parseFloat(doc.x),
-            matchedQuery: doc.address_name || kakaoQuery,
-            precision: 'exact' as const,
-            source: 'Kakao Local',
-          };
-          geocodeCache.set(cacheKey, result);
-          res.json({ success: true, ...result });
-          return;
-        }
-      }
-    }
-
-    // 2. VWorld Official MOLIT Geocoder API (if VWORLD_API_KEY configured)
-    if (process.env.VWORLD_API_KEY) {
-      for (const [type, addrVal] of [
-        ['road', rawAddress.split('(')[0].trim()],
-        ['parcel', rawJibun.split('(')[0].trim()],
-      ] as const) {
-        if (!addrVal) continue;
-        const vwParams = new URLSearchParams({
-          service: 'address',
-          request: 'getcoord',
-          version: '2.0',
-          crs: 'epsg:4326',
-          address: addrVal,
-          refine: 'true',
-          simple: 'false',
-          format: 'json',
-          type,
-          key: process.env.VWORLD_API_KEY,
-        });
-        const vwRes = await fetch(`https://api.vworld.kr/req/address?${vwParams.toString()}`);
-        if (vwRes.ok) {
-          const vwJson: any = await vwRes.json();
-          const point = vwJson?.response?.result?.point;
-          if (vwJson?.response?.status === 'OK' && point?.y && point?.x) {
+    const kakaoKey = (process.env.KAKAO_REST_API_KEY || '').trim();
+    if (kakaoKey && /^[\x20-\x7E]+$/.test(kakaoKey)) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
+      try {
+        const kakaoQuery = rawAddress.split('(')[0].trim() || rawJibun;
+        const kakaoRes = await fetch(
+          `https://dapi.kakao.com/v2/local/search/address.json?query=${encodeURIComponent(kakaoQuery)}`,
+          {
+            signal: controller.signal,
+            headers: { Authorization: `KakaoAK ${kakaoKey}` },
+          }
+        );
+        if (kakaoRes.ok) {
+          const kakaoJson: any = await kakaoRes.json();
+          const doc = kakaoJson?.documents?.[0];
+          if (doc?.y && doc?.x) {
             const result = {
-              lat: parseFloat(point.y),
-              lng: parseFloat(point.x),
-              matchedQuery: addrVal,
+              lat: parseFloat(doc.y),
+              lng: parseFloat(doc.x),
+              matchedQuery: doc.address_name || kakaoQuery,
               precision: 'exact' as const,
-              source: '국토교통부 VWorld',
+              source: 'Kakao Local',
             };
             geocodeCache.set(cacheKey, result);
             res.json({ success: true, ...result });
             return;
           }
         }
+      } catch {
+        // Proceed to next geocoder
+      } finally {
+        clearTimeout(timer);
       }
     }
 
-    // 3. OpenStreetMap Nominatim progressive Korean query cascade
-    const queries = buildKoreanGeocodeCandidates(rawAddress, rawJibun, rawBuilding);
-    for (const item of queries) {
+    // 2. ArcGIS World Geocoding Service (exact PointAddress accuracy for Korean road & parcel addresses)
+    const arcgisQueries = buildKoreanGeocodeCandidates(rawAddress, rawJibun, rawBuilding);
+    for (const item of arcgisQueries.slice(0, 4)) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
+      const timer = setTimeout(() => controller.abort(), 4500);
+      try {
+        const url = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?SingleLine=${encodeURIComponent(
+          item.query
+        )}&countryCode=KOR&outFields=Addr_type,Match_addr&maxLocations=1&f=json`;
+        const arcRes = await fetch(url, {
+          signal: controller.signal,
+          headers: { 'User-Agent': 'BottomLineCommercialRealEstateApp/1.0' },
+        });
+        if (arcRes.ok) {
+          const arcJson: any = await arcRes.json();
+          const best = arcJson?.candidates?.[0];
+          if (
+            best?.location &&
+            typeof best.location.y === 'number' &&
+            typeof best.location.x === 'number' &&
+            Number(best.score || 0) >= 85
+          ) {
+            const precision = mapArcGisPrecision(best?.attributes?.Addr_type, item.precision);
+            // If we asked for an exact building number, avoid accepting a broad city-level match when jibun query is still ahead
+            if (item.precision === 'exact' && precision === 'sigungu' && arcgisQueries.length > 1) {
+              continue;
+            }
+            const result = {
+              lat: best.location.y,
+              lng: best.location.x,
+              matchedQuery: best?.attributes?.Match_addr || best.address || item.query,
+              precision,
+              source: 'ArcGIS Geocoder',
+            };
+            geocodeCache.set(cacheKey, result);
+            res.json({ success: true, ...result });
+            return;
+          }
+        }
+      } catch {
+        // Proceed to next candidate / provider
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // 3. VWorld Official MOLIT Geocoder API (if VWORLD_API_KEY configured & reachable)
+    const vworldKey = (process.env.VWORLD_API_KEY || '').trim();
+    if (vworldKey) {
+      for (const [type, addrVal] of [
+        ['road', rawAddress.split('(')[0].trim()],
+        ['parcel', rawJibun.split('(')[0].trim()],
+      ] as const) {
+        if (!addrVal) continue;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3500);
+        try {
+          const vwParams = new URLSearchParams({
+            service: 'address',
+            request: 'getcoord',
+            version: '2.0',
+            crs: 'epsg:4326',
+            address: addrVal,
+            refine: 'true',
+            simple: 'false',
+            format: 'json',
+            type,
+            key: vworldKey,
+          });
+          const vwRes = await fetch(`https://api.vworld.kr/req/address?${vwParams.toString()}`, {
+            signal: controller.signal,
+          });
+          if (vwRes.ok) {
+            const vwJson: any = await vwRes.json();
+            const point = vwJson?.response?.result?.point;
+            if (vwJson?.response?.status === 'OK' && point?.y && point?.x) {
+              const result = {
+                lat: parseFloat(point.y),
+                lng: parseFloat(point.x),
+                matchedQuery: addrVal,
+                precision: 'exact' as const,
+                source: '국토교통부 VWorld',
+              };
+              geocodeCache.set(cacheKey, result);
+              res.json({ success: true, ...result });
+              return;
+            }
+          }
+        } catch {
+          // Proceed to next geocoder
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    }
+
+    // 4. OpenStreetMap Nominatim progressive Korean query cascade (final fallback)
+    for (const item of arcgisQueries) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4500);
       try {
         const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=kr&accept-language=ko&q=${encodeURIComponent(
           item.query
