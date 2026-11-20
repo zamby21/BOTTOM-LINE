@@ -36,7 +36,7 @@ export const S1Start: React.FC<S1StartProps> = ({
   const comparedCount = candidates.filter((c) => c.addedToCompare).length;
 
   return (
-    <div className="w-full space-y-6 pb-8">
+    <div className="w-full space-y-6">
       {/* Hero Banner — Balanced 2-column layout eliminating empty right-hand void */}
       <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-blue-950 text-white p-5 sm:p-7 lg:p-8 shadow-lg border border-slate-800">
         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-72 h-72 rounded-full bg-blue-500/10 blur-3xl pointer-events-none" />

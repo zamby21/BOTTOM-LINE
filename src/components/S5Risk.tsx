@@ -105,7 +105,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
   ];
 
   return (
-    <div className="w-full space-y-5 pb-24">
+    <div className="w-full space-y-5">
       {/* Step Header */}
       <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">

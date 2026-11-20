@@ -845,7 +845,7 @@ export const S2Input: React.FC<S2InputProps> = ({
   const isDepositOver = convertedDeposit > regionLimit;
 
   return (
-    <div className="w-full space-y-5 pb-12">
+    <div className="w-full space-y-5">
       {/* Daum/Kakao Postcode Address Search Modal */}
       <AddressSearchModal
         isOpen={isAddressModalOpen}

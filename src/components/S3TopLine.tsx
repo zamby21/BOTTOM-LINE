@@ -327,7 +327,7 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
   ).length;
 
   return (
-    <div className="w-full space-y-5 pb-20">
+    <div className="w-full space-y-5">
       {/* Header */}
       <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -863,20 +863,15 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
           })}
         </div>
 
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-2 border-t border-slate-100">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-2.5 border-t border-slate-100">
           <div className="text-xs text-slate-600 tabular-nums">
             최종 선택: <strong className="text-slate-900">{activeMeta.shortTitle}</strong> · 월 결제액{' '}
             <strong className="text-blue-700">{currentGrossRevenue.toLocaleString()}만원</strong>{' '}
             <span className="text-slate-400">(순공급가액 S: {netRevenue.toLocaleString()}만원)</span>
           </div>
-          <button
-            type="button"
-            onClick={onNext}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition-all whitespace-nowrap cursor-pointer"
-          >
-            <span>선택한 값으로 04 비용 구조 분석</span>
-            <ArrowRight className="w-4 h-4 flex-shrink-0" />
-          </button>
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200/80 text-[11px] font-bold text-emerald-700 whitespace-nowrap flex-shrink-0">
+            04 비용 구조에 자동 반영됨
+          </span>
         </div>
       </div>
     </div>

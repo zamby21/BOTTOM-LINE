@@ -309,6 +309,9 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
     ...(metrics.otherFixedCostTotal > 0
       ? [{ label: '기타 고정비', amount: -Math.round(metrics.otherFixedCostTotal), type: 'sub', color: 'bg-teal-500' }]
       : []),
+    ...(metrics.customFixedCostTotal > 0
+      ? [{ label: '사용자 추가 고정비', amount: -Math.round(metrics.customFixedCostTotal), type: 'sub', color: 'bg-pink-500' }]
+      : []),
     { label: '시설 감가상각', amount: -Math.round(metrics.monthlyDepreciation), type: 'sub', color: 'bg-slate-500' },
     { label: '대표 인건비', amount: -Math.round(candidate.ownerSalary), type: 'sub', color: 'bg-indigo-500' },
     {
@@ -361,7 +364,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   const activeDonutSlices = donutData.filter((d) => d.value > 0);
 
   return (
-    <div className="w-full space-y-5 pb-24">
+    <div className="w-full space-y-5">
       {/* Step Header */}
       <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
@@ -572,80 +575,156 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
       </div>
 
       {/* 4 Key Decision Metrics Grid (2x2 on mobile) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-        {/* Metric 1 */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-slate-200 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
-            <span>월 순영업이익</span>
-            <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 tabular-nums">
+        {/* Metric 1: Operating Profit & Cash Flow */}
+        <div
+          className={`rounded-2xl p-3.5 sm:p-5 border shadow-xs space-y-1 ${
+            metrics.monthlyOperatingProfit >= 0
+              ? 'bg-white border-slate-200'
+              : 'bg-rose-50/40 border-rose-200'
+          }`}
+        >
+          <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold">
+            <span>실시간 월 순영업이익</span>
+            <DollarSign
+              className={`w-3.5 h-3.5 ${
+                metrics.monthlyOperatingProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            />
           </div>
-          <div className={`text-lg sm:text-2xl font-black truncate ${
-            metrics.monthlyOperatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'
-          }`}>
+          <div
+            className={`text-lg sm:text-2xl font-black truncate ${
+              metrics.monthlyOperatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'
+            }`}
+          >
+            {metrics.monthlyOperatingProfit >= 0 ? '+' : ''}
             {Math.round(metrics.monthlyOperatingProfit).toLocaleString()}
-            <span className="text-xs font-normal text-slate-500"> 만</span>
+            <span className="text-xs font-normal text-slate-500"> 만원</span>
           </div>
-          <div className="text-[10px] sm:text-xs font-semibold text-slate-600 flex items-center justify-between pt-1 border-t border-slate-100">
-            <span>마진율:</span>
-            <span className="font-bold text-emerald-700">
-              {(metrics.operatingProfitMargin * 100).toFixed(1)}%
-            </span>
+          <div className="text-[10px] sm:text-[11px] font-semibold text-slate-600 space-y-0.5 pt-1.5 border-t border-slate-100">
+            <div className="flex items-center justify-between gap-1">
+              <span>영업이익률</span>
+              <span
+                className={`font-bold ${
+                  metrics.operatingProfitMargin >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                }`}
+              >
+                {(metrics.operatingProfitMargin * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1 text-slate-500">
+              <span>월 영업현금흐름</span>
+              <span className="font-bold text-slate-700">
+                {Math.round(metrics.monthlyCashFlow).toLocaleString()}만
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Metric 2 */}
+        {/* Metric 2: Payback Period (Base & Total Cash) + ROI */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-slate-200 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
-            <span>원금 회수기간</span>
+          <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold">
+            <span>기본 원금 회수기간</span>
             <Clock className="w-3.5 h-3.5 text-blue-600" />
           </div>
           <div className="text-lg sm:text-2xl font-black text-slate-900 truncate">
-            {metrics.paybackPeriodMonths === 999 ? '회수 불가' : `${metrics.paybackPeriodMonths.toFixed(1)}`}
-            <span className="text-xs font-normal text-slate-500"> 개월</span>
+            {metrics.paybackPeriodMonths === 999 ? (
+              '회수 불가'
+            ) : (
+              <>
+                {metrics.paybackPeriodMonths.toFixed(1)}
+                <span className="text-xs font-normal text-slate-500"> 개월</span>
+              </>
+            )}
           </div>
-          <div className="text-[10px] sm:text-xs font-semibold text-slate-600 flex items-center justify-between pt-1 border-t border-slate-100">
-            <span>연 ROI:</span>
-            <span className="font-bold text-blue-700">
-              {(metrics.annualRoi * 100).toFixed(1)}%
-            </span>
+          <div className="text-[10px] sm:text-[11px] font-semibold text-slate-600 space-y-0.5 pt-1.5 border-t border-slate-100">
+            <div className="flex items-center justify-between gap-1">
+              <span>총현금 기준 회수</span>
+              <span className="font-bold text-slate-800">
+                {metrics.totalPaybackPeriodMonths === 999
+                  ? '회수 불가'
+                  : `${metrics.totalPaybackPeriodMonths.toFixed(1)}개월`}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1 text-slate-500">
+              <span>연 투자수익률(ROI)</span>
+              <span
+                className={`font-bold ${
+                  metrics.annualRoi >= 0 ? 'text-blue-700' : 'text-rose-600'
+                }`}
+              >
+                {(metrics.annualRoi * 100).toFixed(1)}%
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Metric 3 */}
+        {/* Metric 3: BEP & Margin of Safety */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-slate-200 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
+          <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold">
             <span>손익분기점 (BEP)</span>
             <TrendingUp className="w-3.5 h-3.5 text-indigo-600" />
           </div>
-          <div className="text-lg sm:text-2xl font-black text-slate-900 truncate">
+          <div className="text-lg sm:text-2xl font-black text-blue-700 truncate">
             {Math.round(metrics.breakEvenRevenue).toLocaleString()}
-            <span className="text-xs font-normal text-slate-500"> 만</span>
+            <span className="text-xs font-normal text-slate-500"> 만원</span>
           </div>
-          <div className="text-[10px] sm:text-xs font-semibold text-slate-600 flex items-center justify-between pt-1 border-t border-slate-100">
-            <span>안전여유율:</span>
-            <span className="font-bold text-indigo-700">
-              {(metrics.marginOfSafety * 100).toFixed(1)}%
-            </span>
+          <div className="text-[10px] sm:text-[11px] font-semibold text-slate-600 space-y-0.5 pt-1.5 border-t border-slate-100">
+            <div className="flex items-center justify-between gap-1">
+              <span>안전여유율</span>
+              <span
+                className={`font-bold ${
+                  metrics.marginOfSafety >= 0 ? 'text-indigo-700' : 'text-rose-600'
+                }`}
+              >
+                {(metrics.marginOfSafety * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1 text-slate-500">
+              <span>월 순매출(공급가)</span>
+              <span className="font-bold text-slate-700">
+                {Math.round(metrics.monthlyRevenue).toLocaleString()}만
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Metric 4 */}
+        {/* Metric 4: Total Cost Ratio & Rent Burden */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-5 border border-slate-200 shadow-xs space-y-1">
-          <div className="flex items-center justify-between text-[11px] text-slate-400 font-bold">
-            <span>임대료 부담률</span>
+          <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold">
+            <span>월 총비용 · 임대 부담</span>
             <Percent className="w-3.5 h-3.5 text-amber-600" />
           </div>
-          <div className={`text-lg sm:text-2xl font-black truncate ${
-            metrics.rentBurdenRate <= 0.12 ? 'text-emerald-700' : 'text-amber-700'
-          }`}>
-            {(metrics.rentBurdenRate * 100).toFixed(1)}
-            <span className="text-xs font-normal text-slate-500"> %</span>
+          <div className="text-lg sm:text-2xl font-black text-slate-900 truncate">
+            {Math.round(metrics.totalMonthlyCost).toLocaleString()}
+            <span className="text-xs font-normal text-slate-500"> 만원</span>
           </div>
-          <div className="text-[10px] sm:text-xs font-semibold text-slate-600 flex items-center justify-between pt-1 border-t border-slate-100">
-            <span>월 임대+관리:</span>
-            <span className="font-bold text-slate-800">
-              {metrics.monthlyRentAndMaintenance}만
-            </span>
+          <div className="text-[10px] sm:text-[11px] font-semibold text-slate-600 space-y-0.5 pt-1.5 border-t border-slate-100">
+            <div className="flex items-center justify-between gap-1">
+              <span>매출 대비 총비용</span>
+              <span
+                className={`font-bold ${
+                  metrics.monthlyRevenue > 0 &&
+                  metrics.totalMonthlyCost / metrics.monthlyRevenue <= 1
+                    ? 'text-slate-800'
+                    : 'text-rose-600'
+                }`}
+              >
+                {metrics.monthlyRevenue > 0
+                  ? `${((metrics.totalMonthlyCost / metrics.monthlyRevenue) * 100).toFixed(1)}%`
+                  : '0.0%'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-1 text-slate-500">
+              <span>임대료 부담률 ({metrics.monthlyRentAndMaintenance}만)</span>
+              <span
+                className={`font-bold ${
+                  metrics.rentBurdenRate <= 0.12 ? 'text-emerald-700' : 'text-amber-700'
+                }`}
+              >
+                {(metrics.rentBurdenRate * 100).toFixed(1)}%
+              </span>
+            </div>
           </div>
         </div>
       </div>

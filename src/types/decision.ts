@@ -100,6 +100,14 @@ export interface MarketingCostBreakdown {
   offlineEvent: number; // 체험단·전단지·이벤트·브랜딩 (만원)
 }
 
+export interface CustomCostItem {
+  id: string;
+  name: string; // 사용자 커스텀 비용 항목명
+  costType: 'fixed' | 'variable_rate'; // 'fixed': 월 고정 금액(만원), 'variable_rate': 월 순매출 대비 비율(%)
+  amount: number; // 만원 (fixed) 또는 % (variable_rate)
+  memo?: string;
+}
+
 export interface CandidateLocation {
   id: string;
   name: string; // 매물명 / 상호
@@ -186,6 +194,7 @@ export interface CandidateLocation {
   marketingCost?: number; // 월 홍보·마케팅 예산 합계 (온라인·배달·오프라인)
   marketingBreakdown?: MarketingCostBreakdown;
   otherFixedCost?: number; // 기타 월 고정비 (로열티·예비비 등)
+  customCosts?: CustomCostItem[]; // 사용자 직접 추가 커스텀 비용 카테고리 목록
 
   // 투자 및 감가상각
   interiorCost: number; // 인테리어 비용 (만원)
@@ -257,8 +266,11 @@ export interface FinancialMetrics {
   taxCostTotal: number; // 월 세무 비용 합계 (만원)
   marketingCostTotal: number; // 월 홍보·마케팅 예산 합계 (만원)
   otherFixedCostTotal: number; // 기타 월 고정비 (만원)
+  customFixedCostTotal: number; // 사용자 추가 커스텀 월 고정비 합계 (만원)
+  customVariableCostTotal: number; // 사용자 추가 커스텀 월 변동비 합계 (만원)
+  customVariableRateTotal: number; // 사용자 추가 커스텀 변동비율 합계 (0~1)
   utilityAndOtherFixedCost: number; // 공과금 + 세무비용 + 홍보마케팅 + 기타 고정비 합계 (만원)
-  totalFixedCost: number; // F (인건비 + 임대료 + 관리비 + 공과금·세무·마케팅·기타 + 감가상각 + 대표인건비, 만원)
+  totalFixedCost: number; // F (인건비 + 임대료 + 관리비 + 공과금·세무·마케팅·기타 + 사용자 추가 고정비 + 감가상각 + 대표인건비, 만원)
   totalMonthlyCost: number; // 월 총비용 (변동비 + 고정비 전체, 만원)
 
   monthlyOperatingProfit: number; // 월 영업이익 (S - S*v - F, 만원)

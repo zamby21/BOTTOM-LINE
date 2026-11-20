@@ -351,7 +351,7 @@ export default function App() {
           containerClass={headerContainerClass}
         />
       ) : (
-        <div className="lg:hidden sticky top-14 sm:top-15 z-30">
+        <div className="lg:hidden sticky top-14 sm:top-15 z-30 print:hidden">
           <StepNav
             currentStep={currentStep}
             onStepChange={(step) => setCurrentStep(step)}

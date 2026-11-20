@@ -85,13 +85,25 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     ? candidate.grossRevenue / 1.1
     : candidate.grossRevenue;
 
-  // 2. 변동비율 v
+  // 2. 변동비율 v (사용자 커스텀 변동비율 포함)
+  const customCosts = candidate.customCosts || [];
+  const customFixedCostTotal = customCosts
+    .filter((item) => item.costType === 'fixed')
+    .reduce((sum, item) => sum + Math.max(0, Number(item.amount) || 0), 0);
+  const customVariableRateTotal = customCosts
+    .filter((item) => item.costType === 'variable_rate')
+    .reduce((sum, item) => sum + Math.max(0, Number(item.amount) || 0) / 100, 0);
+
   const cogRate = (candidate.costOfGoodsRate || 0) / 100;
   const otherVarRate = (candidate.otherVariableRate || 0) / 100;
   const cardFeeComponent = ((candidate.cardRatio || 0) / 100) * ((candidate.cardFeeRate || 0) / 100);
   const deliveryFeeComponent = ((candidate.deliveryRatio || 0) / 100) * ((candidate.deliveryFeeRate || 0) / 100);
 
-  const variableCostRate = cogRate + otherVarRate + cardFeeComponent + deliveryFeeComponent;
+  const variableCostRate = Math.min(
+    0.95,
+    cogRate + otherVarRate + cardFeeComponent + deliveryFeeComponent + customVariableRateTotal
+  );
+  const customVariableCostTotal = monthlyRevenue * customVariableRateTotal;
   const totalVariableCost = monthlyRevenue * variableCostRate;
 
   // 3. 인건비 (월 기준)
@@ -137,6 +149,7 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     laborCost +
     monthlyRentAndMaintenance +
     utilityAndOtherFixedCost +
+    customFixedCostTotal +
     monthlyDepreciation +
     (candidate.ownerSalary || 0);
   const totalMonthlyCost = totalVariableCost + totalFixedCost;
@@ -208,6 +221,9 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     taxCostTotal,
     marketingCostTotal,
     otherFixedCostTotal,
+    customFixedCostTotal,
+    customVariableCostTotal,
+    customVariableRateTotal,
     utilityAndOtherFixedCost,
     totalFixedCost,
     totalMonthlyCost,

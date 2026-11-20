@@ -15,10 +15,8 @@ export const StepFooterNav: React.FC<StepFooterNavProps> = ({
   const currentIndex = STEPS.findIndex((s) => s.id === currentStep);
   if (currentIndex === -1) return null;
 
-  const activeStep = STEPS[currentIndex];
   const prevStep = currentIndex > 0 ? STEPS[currentIndex - 1] : null;
   const nextStep = currentIndex < STEPS.length - 1 ? STEPS[currentIndex + 1] : null;
-  const ActiveIcon = activeStep.icon;
 
   const navigateTo = (stepId: StepId) => {
     onStepChange(stepId);
@@ -31,32 +29,8 @@ export const StepFooterNav: React.FC<StepFooterNavProps> = ({
   return (
     <div
       aria-label="세션 하단 이전·다음 단계 이동"
-      className="mt-6 bg-white rounded-2xl p-4 sm:px-6 sm:py-4 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 print:hidden"
+      className="mt-[1cm] bg-white rounded-2xl p-3.5 sm:px-6 sm:py-4 border border-slate-200 shadow-xs flex items-center justify-end gap-2 print:hidden"
     >
-      {/* Left: Current Step Context */}
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-200/80 text-blue-600 flex items-center justify-center flex-shrink-0">
-          <ActiveIcon className="w-4 h-4" />
-        </div>
-        <div className="min-w-0 leading-tight">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-black uppercase text-blue-700 bg-blue-50 border border-blue-200/80 px-1.5 py-0.5 rounded tabular-nums">
-              {currentIndex + 1} / {STEPS.length}
-            </span>
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight truncate">
-              {activeStep.stageNum}
-            </span>
-          </div>
-          <div className="text-xs sm:text-sm font-extrabold text-slate-900 truncate mt-0.5">
-            {activeStep.name}
-            <span className="text-slate-400 font-medium ml-1.5 text-[11px] sm:text-xs">
-              · {activeStep.shortDesc}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Right: Unified Prev / Next Action Buttons (Matching Top Header Style) */}
       <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
         {prevStep && (
           <button

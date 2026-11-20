@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CandidateLocation, FinancialMetrics, RiskEvaluation } from '../types/decision';
 import {
   calculateFinancialMetrics,
@@ -10,6 +10,7 @@ import {
 import {
   Sparkles,
   Printer,
+  Download,
   Copy,
   Check,
   Share2,
@@ -20,7 +21,11 @@ import {
   FileSignature,
   ClipboardCheck,
   BookmarkPlus,
+  ExternalLink,
+  X,
 } from 'lucide-react';
+import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 
 interface S8ReportProps {
   candidate: CandidateLocation;
@@ -34,10 +39,22 @@ export const S8Report: React.FC<S8ReportProps> = ({
   onSaveSnapshot,
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+  const [printFallbackUrl, setPrintFallbackUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const reportSheetRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (printFallbackUrl) {
+        URL.revokeObjectURL(printFallbackUrl);
+      }
+    };
+  }, [printFallbackUrl]);
 
   const metrics: FinancialMetrics = calculateFinancialMetrics(candidate);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
@@ -117,23 +134,379 @@ ${candidate.aiReport || verdict.summary}`;
     }
   };
 
+  const getSafeFileName = () => {
+    const safeName = (candidate.name || '후보지').replace(/[\\/:*?"<>|\s]+/g, '_');
+    return `BOTTOM_LINE_${safeName}_입점심사리포트`;
+  };
+
+  const collectDocumentStyles = () => {
+    const parts: string[] = [];
+
+    document.querySelectorAll('link[rel="stylesheet"]').forEach((node) => {
+      const link = node as HTMLLinkElement;
+      if (link.href) {
+        parts.push(`<link rel="stylesheet" href="${link.href}" />`);
+      }
+    });
+
+    document.querySelectorAll('style').forEach((styleEl) => {
+      if (styleEl.textContent) {
+        parts.push(`<style>${styleEl.textContent}</style>`);
+      }
+    });
+
+    // Also inline any accessible same-origin stylesheet rules so Blob print tabs render identically
+    try {
+      const inlinedRules: string[] = [];
+      Array.from(document.styleSheets).forEach((sheet) => {
+        if (sheet.ownerNode && sheet.ownerNode.nodeName === 'STYLE') return;
+        try {
+          if (sheet.cssRules) {
+            const rulesText = Array.from(sheet.cssRules)
+              .map((r) => r.cssText)
+              .join('\n');
+            if (rulesText) inlinedRules.push(rulesText);
+          }
+        } catch {
+          // Cross-origin stylesheet (e.g. CDN font) is already included via <link href="...">
+        }
+      });
+      if (inlinedRules.length > 0) {
+        parts.push(`<style>${inlinedRules.join('\n')}</style>`);
+      }
+    } catch {
+      // ignore
+    }
+
+    return parts.join('\n');
+  };
+
+  const buildStandalonePrintHtml = (autoPrint: boolean) => {
+    const sheetEl = reportSheetRef.current;
+    if (!sheetEl) return null;
+
+    const clonedSheet = sheetEl.cloneNode(true) as HTMLElement;
+    clonedSheet.querySelectorAll('.print\\:hidden').forEach((el) => el.remove());
+
+    const styles = collectDocumentStyles();
+    const safeTitle = getSafeFileName();
+    const autoPrintScript = autoPrint
+      ? `<script>
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        window.focus();
+        window.print();
+      }, 280);
+    });
+  </script>`
+      : '';
+
+    return `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <base href="${window.location.origin}/" />
+  <title>${safeTitle}</title>
+  ${styles}
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm;
+    }
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    html, body {
+      background: #f8fafc !important;
+      color: #0f172a !important;
+      margin: 0;
+      padding: 0;
+      font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    }
+    .print-toolbar {
+      max-width: 920px;
+      margin: 16px auto 12px;
+      padding: 12px 16px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    }
+    .print-toolbar-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #334155;
+    }
+    .print-toolbar-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .print-btn {
+      padding: 9px 16px;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .print-btn-primary {
+      background: #0f172a;
+      border-color: #0f172a;
+      color: #ffffff;
+    }
+    .print-sheet {
+      max-width: 920px;
+      margin: 0 auto 32px;
+    }
+    @media print {
+      html, body {
+        background: #ffffff !important;
+      }
+      .print-toolbar {
+        display: none !important;
+      }
+      .print-sheet {
+        max-width: none !important;
+        margin: 0 !important;
+      }
+      .print-sheet > div {
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-toolbar">
+    <div class="print-toolbar-title">${safeTitle} · 인쇄 전용 미리보기</div>
+    <div class="print-toolbar-actions">
+      <button type="button" class="print-btn print-btn-primary" onclick="window.focus(); window.print();">시스템 인쇄 실행</button>
+      <button type="button" class="print-btn" onclick="window.close();">닫기</button>
+    </div>
+  </div>
+  <div class="print-sheet">${clonedSheet.outerHTML}</div>
+  ${autoPrintScript}
+</body>
+</html>`;
+  };
+
+  const downloadStandalonePrintHtml = () => {
+    const htmlDoc = buildStandalonePrintHtml(false);
+    if (!htmlDoc) return;
+
+    const blob = new Blob([htmlDoc], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${getSafeFileName()}.html`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (isExportingPdf) return;
+    const sheetEl = reportSheetRef.current;
+    if (!sheetEl) return;
+
+    setIsExportingPdf(true);
+    setErrorMsg(null);
+    setExportNotice(null);
+    setPrintFallbackUrl(null);
+
+    try {
+      const dataUrl = await toPng(sheetEl, {
+        quality: 0.98,
+        pixelRatio: 2,
+        backgroundColor: '#ffffff',
+        cacheBust: true,
+        filter: (node) => {
+          if (node instanceof HTMLElement && node.classList.contains('print:hidden')) {
+            return false;
+          }
+          return true;
+        },
+      });
+
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (err) => reject(err);
+        img.src = dataUrl;
+      });
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pageWidthMm = pdf.internal.pageSize.getWidth();
+      const pageHeightMm = pdf.internal.pageSize.getHeight();
+      const marginMm = 10;
+      const printableWidthMm = pageWidthMm - marginMm * 2;
+      const printableHeightMm = pageHeightMm - marginMm * 2;
+
+      const totalImageHeightMm = (img.height * printableWidthMm) / img.width;
+      const totalPages = Math.max(1, Math.ceil(totalImageHeightMm / printableHeightMm));
+
+      const pxPerMm = img.width / printableWidthMm;
+      const sliceHeightPx = Math.floor(printableHeightMm * pxPerMm);
+
+      for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+        if (pageIdx > 0) {
+          pdf.addPage();
+        }
+        const sourceY = pageIdx * sliceHeightPx;
+        const currentSlicePx = Math.min(sliceHeightPx, img.height - sourceY);
+        if (currentSlicePx <= 0) break;
+
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = img.width;
+        sliceCanvas.height = currentSlicePx;
+        const ctx = sliceCanvas.getContext('2d');
+        if (!ctx) continue;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+        ctx.drawImage(
+          img,
+          0,
+          sourceY,
+          img.width,
+          currentSlicePx,
+          0,
+          0,
+          img.width,
+          currentSlicePx
+        );
+
+        const sliceDataUrl = sliceCanvas.toDataURL('image/png');
+        const renderedHeightMm = currentSlicePx / pxPerMm;
+        pdf.addImage(
+          sliceDataUrl,
+          'PNG',
+          marginMm,
+          marginMm,
+          printableWidthMm,
+          renderedHeightMm,
+          undefined,
+          'FAST'
+        );
+      }
+
+      pdf.save(`${getSafeFileName()}.pdf`);
+      setExportNotice('PDF 파일이 성공적으로 생성되어 다운로드되었습니다.');
+      window.setTimeout(() => setExportNotice(null), 4000);
+    } catch {
+      downloadStandalonePrintHtml();
+      setExportNotice(
+        '브라우저 보안 정책으로 인해 인쇄용 HTML 리포트 파일로 저장했습니다. 파일을 열면 바로 인쇄·PDF 저장이 가능합니다.'
+      );
+      window.setTimeout(() => setExportNotice(null), 6000);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  const openStandaloneSystemPrintTab = () => {
+    const htmlDoc = buildStandalonePrintHtml(true);
+    if (!htmlDoc) return;
+
+    if (printFallbackUrl) {
+      URL.revokeObjectURL(printFallbackUrl);
+    }
+
+    const blob = new Blob([htmlDoc], { type: 'text/html;charset=utf-8' });
+    const blobUrl = URL.createObjectURL(blob);
+    setPrintFallbackUrl(blobUrl);
+
+    // Trigger anchor navigation synchronously inside the click gesture to open an unsandboxed tab that runs system window.print()
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    setExportNotice(
+      '인쇄 전용 창에서 시스템 인쇄 대화상자를 실행했습니다. 창이 자동으로 열리지 않으면 우측 [인쇄 창 열기] 버튼이나 Ctrl+P(⌘+P)를 눌러주세요.'
+    );
+  };
+
   const handlePrint = () => {
+    setErrorMsg(null);
+    setExportNotice(null);
+
     const prevTitle = document.title;
-    const safeName = (candidate.name || '후보지').replace(/[\\/:*?"<>|]/g, '_');
-    document.title = `BOTTOM_LINE_${safeName}_입점심사리포트`;
+    document.title = getSafeFileName();
 
-    const restoreTitle = () => {
-      document.title = prevTitle;
-      window.removeEventListener('afterprint', restoreTitle);
+    let printTriggered = false;
+    const onBeforePrint = () => {
+      printTriggered = true;
     };
-    window.addEventListener('afterprint', restoreTitle);
 
-    window.print();
-    setTimeout(restoreTitle, 1500);
+    const printMediaQuery = window.matchMedia ? window.matchMedia('print') : null;
+    const onMediaChange = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        printTriggered = true;
+      }
+    };
+
+    const cleanup = () => {
+      document.title = prevTitle;
+      window.removeEventListener('beforeprint', onBeforePrint);
+      window.removeEventListener('afterprint', cleanup);
+      if (printMediaQuery && typeof printMediaQuery.removeEventListener === 'function') {
+        printMediaQuery.removeEventListener('change', onMediaChange);
+      }
+    };
+
+    window.addEventListener('beforeprint', onBeforePrint);
+    window.addEventListener('afterprint', cleanup);
+    if (printMediaQuery && typeof printMediaQuery.addEventListener === 'function') {
+      printMediaQuery.addEventListener('change', onMediaChange);
+    }
+
+    const startTime = performance.now();
+    let printThrew = false;
+    try {
+      window.focus();
+      window.print();
+    } catch {
+      printThrew = true;
+    }
+    const elapsed = performance.now() - startTime;
+
+    // If the host preview iframe suppresses window.print() (no beforeprint event & instant return),
+    // open a clean unsandboxed print tab that immediately triggers the OS/system print dialog (never PDF download).
+    const isSuppressedInIframe =
+      (printThrew || (!printTriggered && elapsed < 120)) && window.self !== window.top;
+
+    if (isSuppressedInIframe) {
+      cleanup();
+      openStandaloneSystemPrintTab();
+      return;
+    }
+
+    // Safety cleanup in case afterprint does not fire in certain browsers
+    window.setTimeout(cleanup, 1000);
   };
 
   return (
-    <div className="w-full space-y-5 pb-24 print:p-0 print:space-y-4">
+    <div className="w-full space-y-5 print:p-0 print:space-y-4">
       {/* Top Action Bar (hidden in print) */}
       <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
         <div className="min-w-0 flex-1">
@@ -203,13 +576,62 @@ ${candidate.aiReport || verdict.summary}`;
           <button
             type="button"
             onClick={handlePrint}
-            className="h-10 col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
+            className="h-10 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5 flex-shrink-0" />
-            <span>인쇄/PDF 저장</span>
+            <span>인쇄</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={isExportingPdf}
+            className="h-10 col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs disabled:opacity-60 transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
+          >
+            {isExportingPdf ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                <span>PDF 생성 중...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>PDF 저장</span>
+              </>
+            )}
           </button>
         </div>
       </div>
+
+      {exportNotice && (
+        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-800 flex flex-wrap items-center justify-between gap-2 print:hidden">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{exportNotice}</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {printFallbackUrl && (
+              <a
+                href={printFallbackUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-[11px] transition-colors whitespace-nowrap"
+              >
+                <ExternalLink className="w-3 h-3" />
+                인쇄 창 열기
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setExportNotice(null)}
+              aria-label="알림 닫기"
+              className="p-1 rounded-lg text-emerald-700 hover:bg-emerald-100 transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {errorMsg && (
         <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 print:hidden">
@@ -218,7 +640,10 @@ ${candidate.aiReport || verdict.summary}`;
       )}
 
       {/* Printable Report Document Sheet */}
-      <div className="bg-white rounded-3xl p-5 sm:p-10 border border-slate-200 shadow-md space-y-6 sm:space-y-8 print:border-none print:shadow-none print:p-0">
+      <div
+        ref={reportSheetRef}
+        className="bg-white rounded-3xl p-5 sm:p-10 border border-slate-200 shadow-md space-y-6 sm:space-y-8 print:border-none print:shadow-none print:p-0"
+      >
         {/* Document Header */}
         <div className="border-b-2 border-slate-900 pb-5 space-y-3">
           <div className="flex items-center justify-between">
@@ -347,41 +772,41 @@ ${candidate.aiReport || verdict.summary}`;
                 <tr>
                   <th className="p-2 sm:p-2.5">항목</th>
                   <th className="p-2 sm:p-2.5">판정 결과</th>
-                  <th className="p-2 sm:p-2.5 hidden sm:table-cell">확인 내용</th>
+                  <th className="p-2 sm:p-2.5 hidden sm:table-cell print:table-cell">확인 내용</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 <tr>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-800">R1 건축물 용도</td>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-900">{riskEval.r1.statusText}</td>
-                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell">{riskEval.r1.detail}</td>
+                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell print:table-cell">{riskEval.r1.detail}</td>
                 </tr>
                 <tr>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-800">R2 위반건축물</td>
                   <td className={`p-2 sm:p-2.5 font-bold ${riskEval.r2.status === 'BLOCK' ? 'text-rose-600' : 'text-slate-900'}`}>
                     {riskEval.r2.statusText}
                   </td>
-                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell">{riskEval.r2.detail}</td>
+                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell print:table-cell">{riskEval.r2.detail}</td>
                 </tr>
                 <tr>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-800">R3 용도지역</td>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-900">{riskEval.r3.statusText}</td>
-                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell">{riskEval.r3.detail}</td>
+                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell print:table-cell">{riskEval.r3.detail}</td>
                 </tr>
                 <tr>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-800">R4 교육환경보호구역</td>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-900">{riskEval.r4.statusText}</td>
-                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell">{riskEval.r4.detail}</td>
+                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell print:table-cell">{riskEval.r4.detail}</td>
                 </tr>
                 <tr>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-800">R5 다중이용업소</td>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-900">{riskEval.r5.statusText}</td>
-                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell">{riskEval.r5.detail}</td>
+                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell print:table-cell">{riskEval.r5.detail}</td>
                 </tr>
                 <tr>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-800">R6 환산보증금</td>
                   <td className="p-2 sm:p-2.5 font-bold text-slate-900">{riskEval.r6.statusText}</td>
-                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell">{riskEval.r6.detail}</td>
+                  <td className="p-2 sm:p-2.5 text-slate-500 hidden sm:table-cell print:table-cell">{riskEval.r6.detail}</td>
                 </tr>
               </tbody>
             </table>
@@ -474,7 +899,7 @@ ${candidate.aiReport || verdict.summary}`;
                 type="button"
                 onClick={handleGenerateAiReport}
                 disabled={isGenerating}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs"
+                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs print:hidden"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 지금 생성하기
@@ -502,16 +927,36 @@ ${candidate.aiReport || verdict.summary}`;
       {/* Bottom Convenience Print / PDF Save Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white rounded-2xl p-4 border border-slate-200 shadow-xs print:hidden">
         <p className="text-xs text-slate-500">
-          브라우저 인쇄 대화상자에서 대상을 <strong>&lsquo;PDF로 저장&rsquo;</strong>으로 선택하면 전체 심사서를 PDF 파일로 보관할 수 있습니다.
+          <strong>인쇄</strong> 버튼을 누르면 시스템 인쇄 대화상자가 바로 실행되며, <strong>PDF 저장</strong>으로 A4 PDF 파일을 즉시 다운로드할 수 있습니다.
         </p>
-        <button
-          type="button"
-          onClick={handlePrint}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all flex-shrink-0 cursor-pointer"
-        >
-          <Printer className="w-3.5 h-3.5" />
-          인쇄/PDF 저장
-        </button>
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-shrink-0">
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all whitespace-nowrap cursor-pointer"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            인쇄
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            disabled={isExportingPdf}
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs disabled:opacity-60 transition-all whitespace-nowrap cursor-pointer"
+          >
+            {isExportingPdf ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                PDF 생성 중...
+              </>
+            ) : (
+              <>
+                <Download className="w-3.5 h-3.5" />
+                PDF 저장
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
