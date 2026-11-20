@@ -25,18 +25,48 @@ function getGeminiClient(): GoogleGenAI {
   return cachedGeminiClient;
 }
 
+const DATA_GO_KR_ENV_ALIASES = [
+  'DATA_GO_KR_API_KEY',
+  'VITE_DATA_GO_KR_API_KEY',
+  'NEXT_PUBLIC_DATA_GO_KR_API_KEY',
+  'DATA_GO_KR_SERVICE_KEY',
+  'DATA_GO_KR_KEY',
+  'DATA_GO_KR_DECODING_KEY',
+  'DATA_GO_KR_ENCODING_KEY',
+  'PUBLIC_DATA_API_KEY',
+  'PUBLIC_DATA_KEY',
+  'PUBLIC_DATA_PORTAL_API_KEY',
+  'BUILDING_REGISTER_API_KEY',
+  'BUILDING_LEDGER_API_KEY',
+  'BLD_RGST_API_KEY',
+  'MOLIT_API_KEY',
+];
+
+function resolveDataGoKrApiKey(): string {
+  for (const name of DATA_GO_KR_ENV_ALIASES) {
+    const val = process.env[name];
+    if (typeof val === 'string' && val.trim()) {
+      return val.trim();
+    }
+  }
+  // Fallback for accidental whitespace or case variations in secret names
+  const aliasSet = new Set(DATA_GO_KR_ENV_ALIASES);
+  for (const [envName, envVal] of Object.entries(process.env)) {
+    const normalized = envName.trim().toUpperCase();
+    if (aliasSet.has(normalized) && typeof envVal === 'string' && envVal.trim()) {
+      return envVal.trim();
+    }
+  }
+  return '';
+}
+
 // Health check endpoint (useful for verifying Vercel & Node serverless readiness)
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     success: true,
     status: 'ok',
     runtime: process.env.VERCEL ? 'vercel' : 'node',
-    dataGoKrConfigured: Boolean(
-      process.env.DATA_GO_KR_API_KEY ||
-        process.env.PUBLIC_DATA_API_KEY ||
-        process.env.BUILDING_REGISTER_API_KEY ||
-        process.env.DATA_GO_KR_KEY
-    ),
+    dataGoKrConfigured: Boolean(resolveDataGoKrApiKey()),
   });
 });
 
@@ -714,12 +744,7 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
   try {
     const { address, jibunAddress, bcode } = req.body || {};
 
-    const apiKey =
-      process.env.DATA_GO_KR_API_KEY ||
-      process.env.PUBLIC_DATA_API_KEY ||
-      process.env.BUILDING_REGISTER_API_KEY ||
-      process.env.DATA_GO_KR_KEY ||
-      '';
+    const apiKey = resolveDataGoKrApiKey();
 
     let parcel = parseJibunCodes(bcode, jibunAddress, address);
 
@@ -848,11 +873,15 @@ app.post('/api/building-register/units', async (req: Request, res: Response) => 
     }
 
     if (!apiKey || !apiKey.trim()) {
+      const isVercel = Boolean(process.env.VERCEL);
       res.json({
         success: false,
         code: 'API_KEY_MISSING',
+        runtime: isVercel ? 'vercel' : 'node',
         parcel,
-        message: '서버 환경변수(DATA_GO_KR_API_KEY)가 설정되지 않았습니다. 공공데이터포털에서 "국토교통부_건축HUB_건축물대장정보 서비스" 인증키를 발급받아 서버 환경변수(DATA_GO_KR_API_KEY)에 등록하면 호실·전용면적·층수·용도·용도지역이 자동 조회됩니다.',
+        message: isVercel
+          ? 'Vercel 배포 환경변수에 DATA_GO_KR_API_KEY가 등록되어 있지 않습니다. AI Studio Secrets는 Vercel로 자동 연동되지 않으므로, Vercel 대시보드(Settings → Environment Variables)에 DATA_GO_KR_API_KEY를 추가(Production 체크)한 뒤 Redeploy 해주세요.'
+          : '서버 환경변수(DATA_GO_KR_API_KEY)가 감지되지 않았습니다. AI Studio Secrets(또는 서버 환경변수)에 변수명이 정확히 DATA_GO_KR_API_KEY로 등록되어 있는지 확인하고 재실행해주세요.',
       });
       return;
     }
