@@ -105,23 +105,44 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
   const totalCapex = (candidate.interiorCost || 0) + (candidate.equipmentCost || 0);
   const monthlyDepreciation = totalCapex > 0 ? totalCapex / depreciationMonths : 0;
 
-  // 5. 임대료 + 관리비 & 추가 고정비 (공과금, 광고비, 기타 고정비)
+  // 5. 임대료 + 관리비 & 세분화 운영 고정비 (공과금, 세무비용, 홍보·마케팅, 기타)
   const monthlyRentAndMaintenance = (candidate.monthlyRent || 0) + (candidate.maintenanceFee || 0);
-  const utilityAndOtherFixedCost =
-    (candidate.utilityCost || 0) +
-    (candidate.marketingCost || 0) +
-    (candidate.otherFixedCost || 0);
 
-  // 6. 고정비 F
+  const utilityCostTotal = candidate.utilityBreakdown
+    ? (candidate.utilityBreakdown.electricity || 0) +
+      (candidate.utilityBreakdown.water || 0) +
+      (candidate.utilityBreakdown.gas || 0) +
+      (candidate.utilityBreakdown.internetPos || 0)
+    : candidate.utilityCost || 0;
+
+  const taxCostTotal = candidate.taxBreakdown
+    ? (candidate.taxBreakdown.bookkeepingFee || 0) +
+      (candidate.taxBreakdown.taxFilingReserve || 0) +
+      (candidate.taxBreakdown.localTaxAndInsurance || 0)
+    : candidate.taxCost || 0;
+
+  const marketingCostTotal = candidate.marketingBreakdown
+    ? (candidate.marketingBreakdown.onlineAds || 0) +
+      (candidate.marketingBreakdown.deliveryPromotion || 0) +
+      (candidate.marketingBreakdown.offlineEvent || 0)
+    : candidate.marketingCost || 0;
+
+  const otherFixedCostTotal = candidate.otherFixedCost || 0;
+
+  const utilityAndOtherFixedCost =
+    utilityCostTotal + taxCostTotal + marketingCostTotal + otherFixedCostTotal;
+
+  // 6. 고정비 F & 월 총비용
   const totalFixedCost =
     laborCost +
     monthlyRentAndMaintenance +
     utilityAndOtherFixedCost +
     monthlyDepreciation +
     (candidate.ownerSalary || 0);
+  const totalMonthlyCost = totalVariableCost + totalFixedCost;
 
   // 7. 월 영업이익 & 현금흐름
-  const monthlyOperatingProfit = monthlyRevenue - totalVariableCost - totalFixedCost;
+  const monthlyOperatingProfit = monthlyRevenue - totalMonthlyCost;
   const monthlyCashFlow = monthlyOperatingProfit + monthlyDepreciation;
   const operatingProfitMargin = monthlyRevenue > 0 ? monthlyOperatingProfit / monthlyRevenue : 0;
 
@@ -183,8 +204,13 @@ export function calculateFinancialMetrics(candidate: CandidateLocation): Financi
     laborCost,
     monthlyDepreciation,
     monthlyRentAndMaintenance,
+    utilityCostTotal,
+    taxCostTotal,
+    marketingCostTotal,
+    otherFixedCostTotal,
     utilityAndOtherFixedCost,
     totalFixedCost,
+    totalMonthlyCost,
     monthlyOperatingProfit,
     monthlyCashFlow,
     operatingProfitMargin,

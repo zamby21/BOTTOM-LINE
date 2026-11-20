@@ -297,8 +297,17 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
     { label: '원가·변동비', amount: -Math.round(metrics.totalVariableCost), type: 'sub', color: 'bg-rose-500' },
     { label: '직원 인건비', amount: -Math.round(metrics.laborCost), type: 'sub', color: 'bg-amber-500' },
     { label: '임대료+관리비', amount: -Math.round(metrics.monthlyRentAndMaintenance), type: 'sub', color: 'bg-purple-500' },
-    ...(metrics.utilityAndOtherFixedCost > 0
-      ? [{ label: '공과금·광고·기타', amount: -Math.round(metrics.utilityAndOtherFixedCost), type: 'sub', color: 'bg-cyan-500' }]
+    ...(metrics.utilityCostTotal > 0
+      ? [{ label: '월 공과금', amount: -Math.round(metrics.utilityCostTotal), type: 'sub', color: 'bg-cyan-500' }]
+      : []),
+    ...(metrics.taxCostTotal > 0
+      ? [{ label: '세무·보험비', amount: -Math.round(metrics.taxCostTotal), type: 'sub', color: 'bg-orange-500' }]
+      : []),
+    ...(metrics.marketingCostTotal > 0
+      ? [{ label: '홍보·마케팅', amount: -Math.round(metrics.marketingCostTotal), type: 'sub', color: 'bg-fuchsia-500' }]
+      : []),
+    ...(metrics.otherFixedCostTotal > 0
+      ? [{ label: '기타 고정비', amount: -Math.round(metrics.otherFixedCostTotal), type: 'sub', color: 'bg-teal-500' }]
       : []),
     { label: '시설 감가상각', amount: -Math.round(metrics.monthlyDepreciation), type: 'sub', color: 'bg-slate-500' },
     { label: '대표 인건비', amount: -Math.round(candidate.ownerSalary), type: 'sub', color: 'bg-indigo-500' },
@@ -329,7 +338,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
     },
     {
       name: '고정비',
-      detail: '인건·임대·공과금·상각',
+      detail: '인건·임대·공과금·세무·마케팅·상각',
       value: roundedFixedCost,
       ratio: metrics.monthlyRevenue > 0 ? (metrics.totalFixedCost / metrics.monthlyRevenue) * 100 : 0,
       color: '#6366f1',

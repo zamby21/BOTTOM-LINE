@@ -4,6 +4,7 @@ import { INITIAL_PRESET_CANDIDATES, INDUSTRY_BENCHMARKS } from './data/presets';
 import { calculateFinancialMetrics, evaluateRiskRules, calculateDecisionScore } from './utils/engine';
 import { Header } from './components/Header';
 import { StepNav, StepNavPosition } from './components/StepNav';
+import { StepFooterNav } from './components/StepFooterNav';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { S1Start } from './components/S1Start';
 import { S2Input } from './components/S2Input';
@@ -478,6 +479,12 @@ export default function App() {
             onSaveSnapshot={handleSaveSnapshot}
           />
         )}
+
+        {/* Unified Bottom Previous / Next Step Navigation across all sessions */}
+        <StepFooterNav
+          currentStep={currentStep}
+          onStepChange={(step) => setCurrentStep(step)}
+        />
         </main>
       </div>
 

@@ -81,6 +81,25 @@ export interface RiskEvaluation {
   totalPenalty: number;
 }
 
+export interface UtilityCostBreakdown {
+  electricity: number; // 전기요금 (냉난방·조명·주방, 만원)
+  water: number; // 수도요금 (상하수도, 만원)
+  gas: number; // 도시가스·열요금 (취사·온수, 만원)
+  internetPos: number; // 인터넷·POS·통신·보안·렌탈 (만원)
+}
+
+export interface TaxCostBreakdown {
+  bookkeepingFee: number; // 월 세무 기장료 (만원)
+  taxFilingReserve: number; // 부가세·종소세 신고조정료 월할 적립 (만원)
+  localTaxAndInsurance: number; // 지방세·화재/배상보험·기타 세무 (만원)
+}
+
+export interface MarketingCostBreakdown {
+  onlineAds: number; // 네이버 플레이스·SNS·검색 광고 (만원)
+  deliveryPromotion: number; // 배달앱 깃발·쿠폰·할인 프로모션 (만원)
+  offlineEvent: number; // 체험단·전단지·이벤트·브랜딩 (만원)
+}
+
 export interface CandidateLocation {
   id: string;
   name: string; // 매물명 / 상호
@@ -159,10 +178,14 @@ export interface CandidateLocation {
   socialInsuranceRate: number; // 4대보험 사업주 부담률 (%, 기본 10.5%)
   ownerSalary: number; // 대표자 목표 인건비 (만원)
 
-  // 추가 고정비 (만원 단위, PropScope 보완 항목)
-  utilityCost?: number; // 월 공과금 (전기·수도·가스·인터넷)
-  marketingCost?: number; // 월 광고·마케팅비
-  otherFixedCost?: number; // 기타 월 고정비 (세무기장·보험 등)
+  // 추가 고정비 (만원 단위: 공과금 · 세무비용 · 홍보마케팅 · 기타)
+  utilityCost?: number; // 월 공과금 합계 (전기·수도·가스·통신/POS)
+  utilityBreakdown?: UtilityCostBreakdown;
+  taxCost?: number; // 월 세무 비용 합계 (기장료·신고조정·보험/지방세)
+  taxBreakdown?: TaxCostBreakdown;
+  marketingCost?: number; // 월 홍보·마케팅 예산 합계 (온라인·배달·오프라인)
+  marketingBreakdown?: MarketingCostBreakdown;
+  otherFixedCost?: number; // 기타 월 고정비 (로열티·예비비 등)
 
   // 투자 및 감가상각
   interiorCost: number; // 인테리어 비용 (만원)
@@ -230,8 +253,13 @@ export interface FinancialMetrics {
   laborCost: number; // 월 인건비 (만원)
   monthlyDepreciation: number; // 감가상각비 (만원)
   monthlyRentAndMaintenance: number; // 임대료 + 관리비 (만원)
-  utilityAndOtherFixedCost: number; // 공과금 + 광고비 + 기타 고정비 (만원)
-  totalFixedCost: number; // F (인건비 + 임대료 + 관리비 + 공과금·기타 + 감가상각 + 대표인건비, 만원)
+  utilityCostTotal: number; // 월 공과금 합계 (만원)
+  taxCostTotal: number; // 월 세무 비용 합계 (만원)
+  marketingCostTotal: number; // 월 홍보·마케팅 예산 합계 (만원)
+  otherFixedCostTotal: number; // 기타 월 고정비 (만원)
+  utilityAndOtherFixedCost: number; // 공과금 + 세무비용 + 홍보마케팅 + 기타 고정비 합계 (만원)
+  totalFixedCost: number; // F (인건비 + 임대료 + 관리비 + 공과금·세무·마케팅·기타 + 감가상각 + 대표인건비, 만원)
+  totalMonthlyCost: number; // 월 총비용 (변동비 + 고정비 전체, 만원)
 
   monthlyOperatingProfit: number; // 월 영업이익 (S - S*v - F, 만원)
   monthlyCashFlow: number; // 월 영업현금흐름 (영업이익 + 감가상각, 만원)
