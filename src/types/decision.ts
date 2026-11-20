@@ -160,9 +160,11 @@ export interface CandidateLocation {
   aiReport?: string;
   aiReportDate?: string;
 
-  // 04 종합판정 및 비교함 관리
-  addedToCompare?: boolean; // 04 종합판정 후 비교함에 추가 여부
-  evaluatedAt?: string; // 04 종합판정 완료 일시
+  // 06 종합판정 및 비교함 관리
+  addedToCompare?: boolean; // 종합판정 후 비교함에 추가 여부
+  evaluatedAt?: string; // 종합판정 완료 일시
+  isStarred?: boolean; // 중요 후보지 별표 표시
+  isLocked?: boolean; // 삭제 방지 잠금 여부
 
   // 입지 경쟁력 현장 보정 점수 (0~100, 선택 입력)
   locationRatings?: {

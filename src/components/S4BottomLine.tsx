@@ -51,7 +51,7 @@ export const S4BottomLine: React.FC<S4BottomLineProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-xs font-bold mb-1">
             <Calculator className="w-3.5 h-3.5" />
-            02 BOTTOM-LINE (그래서 남는가)
+            04 BOTTOM-LINE (그래서 남는가)
           </div>
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             비용 구조 · 손익분기점 · 민감도 분석

@@ -147,7 +147,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
     if (onToggleCompare) {
       onToggleCompare(candidate.id);
       if (!candidate.addedToCompare) {
-        setToastMsg(`'${candidate.name}'이(가) S7 후보지 비교함에 추가되었습니다.`);
+        setToastMsg(`'${candidate.name}'이(가) 07 후보지 비교함에 추가되었습니다.`);
       } else {
         setToastMsg(`'${candidate.name}'이(가) 비교함에서 제외되었습니다.`);
       }
@@ -158,7 +158,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   const handleSnapshotClick = () => {
     if (onSaveSnapshot) {
       onSaveSnapshot();
-      setToastMsg(`'${candidate.name}'의 현재 04 종합판정 결과가 분석 히스토리에 저장되었습니다.`);
+      setToastMsg(`'${candidate.name}'의 현재 06 종합판정 결과가 분석 히스토리에 저장되었습니다.`);
       setTimeout(() => setToastMsg(null), 3000);
     }
   };
@@ -229,7 +229,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-bold mb-1">
             <Award className="w-3.5 h-3.5" />
-            04 DECISION (그래서 어떻게)
+            06 DECISION (그래서 어떻게)
           </div>
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             종합 의사결정 판정 결과
@@ -307,7 +307,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
             onClick={onGoToCompare}
             className="text-indigo-300 hover:text-white underline text-[11px] font-semibold"
           >
-            S7 비교함 바로가기 ➔
+            07 비교함 바로가기 ➔
           </button>
         </div>
       )}
@@ -384,13 +384,13 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
               </span>
               <h4 className="font-bold text-slate-900 text-sm sm:text-base">
                 {candidate.addedToCompare
-                  ? '04 종합판정 결과가 S7 후보지 비교함에 등록되어 있습니다'
-                  : '이 매물의 04 종합판정 결과를 후보지 비교대상으로 추가하시겠습니까?'}
+                  ? '06 종합판정 결과가 07 후보지 비교함에 등록되어 있습니다'
+                  : '이 매물의 06 종합판정 결과를 후보지 비교대상으로 추가하시겠습니까?'}
               </h4>
             </div>
             <p className="text-xs text-slate-600 pl-9">
               {candidate.addedToCompare
-                ? `100점 만점 총점(${scoreBreakdown.totalScore}점), 월 순영업이익(${Math.round(metrics.monthlyOperatingProfit).toLocaleString()}만원), BEP, 6대 규제 점검 결과가 S7 비교 풀에 등록되었습니다.`
+                ? `100점 만점 총점(${scoreBreakdown.totalScore}점), 월 순영업이익(${Math.round(metrics.monthlyOperatingProfit).toLocaleString()}만원), BEP, 6대 규제 점검 결과가 07 비교 풀에 등록되었습니다.`
                 : '종합 판정 결과가 완료된 매물들을 비교함에 모아서, 다른 후보지들과의 순위 역전 현상 및 최적 매물(BEST CHOICE)을 비교 검증합니다.'}
             </p>
           </div>
@@ -413,7 +413,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
               ) : (
                 <>
                   <Plus className="w-3.5 h-3.5" />
-                  <span>04 종합판정 결과 비교대상으로 추가</span>
+                  <span>06 종합판정 결과 비교대상으로 추가</span>
                 </>
               )}
             </button>
@@ -425,7 +425,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                 className="flex-1 md:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm transition-all"
               >
                 <Scale className="w-3.5 h-3.5" />
-                <span>S7 비교함 가기</span>
+                <span>07 비교함 가기</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}

@@ -3,7 +3,7 @@ import { AnalysisHistoryRecord, CandidateLocation, StepId } from './types/decisi
 import { INITIAL_PRESET_CANDIDATES, INDUSTRY_BENCHMARKS } from './data/presets';
 import { calculateFinancialMetrics, evaluateRiskRules, calculateDecisionScore } from './utils/engine';
 import { Header } from './components/Header';
-import { StepNav } from './components/StepNav';
+import { StepNav, StepNavPosition } from './components/StepNav';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { S1Start } from './components/S1Start';
 import { S2Input } from './components/S2Input';
@@ -49,6 +49,27 @@ export default function App() {
   });
   const [isRegionModalOpen, setIsRegionModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [navPosition, setNavPosition] = useState<StepNavPosition>(() => {
+    try {
+      const saved = localStorage.getItem('bottomline_nav_position');
+      if (saved === 'left' || saved === 'top') return saved;
+    } catch {
+      // ignore
+    }
+    return 'top';
+  });
+
+  const handleToggleNavPosition = () => {
+    setNavPosition((prev) => {
+      const next: StepNavPosition = prev === 'top' ? 'left' : 'top';
+      try {
+        localStorage.setItem('bottomline_nav_position', next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   const persistHistory = (nextHistory: AnalysisHistoryRecord[]) => {
     setHistory(nextHistory);
@@ -165,6 +186,48 @@ export default function App() {
     });
   };
 
+  const handleToggleLockCandidate = (candidateId: string) => {
+    setCandidates((prev) => {
+      const next = prev.map((c) =>
+        c.id === candidateId ? { ...c, isLocked: !c.isLocked } : c
+      );
+      try {
+        localStorage.setItem('bottomline_candidates', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleToggleStarCandidate = (candidateId: string) => {
+    setCandidates((prev) => {
+      const next = prev.map((c) =>
+        c.id === candidateId ? { ...c, isStarred: !c.isStarred } : c
+      );
+      try {
+        localStorage.setItem('bottomline_candidates', JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const handleDeleteCandidate = (candidateId: string) => {
+    setCandidates((prev) => {
+      if (prev.length <= 1) return prev;
+      const target = prev.find((c) => c.id === candidateId);
+      if (!target || target.isLocked) return prev;
+
+      const next = prev.filter((c) => c.id !== candidateId);
+      try {
+        localStorage.setItem('bottomline_candidates', JSON.stringify(next));
+      } catch (e) {}
+
+      if (activeCandidateId === candidateId && next.length > 0) {
+        setActiveCandidateId(next[0].id);
+      }
+      return next;
+    });
+  };
+
   const activeCandidate =
     candidates.find((c) => c.id === activeCandidateId) || candidates[0];
 
@@ -234,16 +297,44 @@ export default function App() {
         historyCount={history.length}
       />
 
-      {/* Step Bar Navigation (S1 ~ S8) with mobile progress */}
-      <StepNav
-        currentStep={currentStep}
-        onStepChange={(step) => setCurrentStep(step)}
-        verdictCode={activeVerdict.code}
-        totalScore={activeScore.totalScore}
-      />
+      {/* Sticky Top Step Bar Navigation (always visible when in 'top' mode; on mobile also shown when 'left' mode is selected) */}
+      {navPosition === 'top' ? (
+        <StepNav
+          currentStep={currentStep}
+          onStepChange={(step) => setCurrentStep(step)}
+          verdictCode={activeVerdict.code}
+          totalScore={activeScore.totalScore}
+          position="top"
+          onTogglePosition={handleToggleNavPosition}
+        />
+      ) : (
+        <div className="lg:hidden sticky top-14 sm:top-16 z-30">
+          <StepNav
+            currentStep={currentStep}
+            onStepChange={(step) => setCurrentStep(step)}
+            verdictCode={activeVerdict.code}
+            totalScore={activeScore.totalScore}
+            position="top"
+            onTogglePosition={handleToggleNavPosition}
+          />
+        </div>
+      )}
 
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-12">
+      {/* Body Wrapper (supports sticky left sidebar + main content) */}
+      <div className={`flex-1 flex w-full ${navPosition === 'left' ? 'items-start' : 'flex-col'}`}>
+        {navPosition === 'left' && (
+          <StepNav
+            currentStep={currentStep}
+            onStepChange={(step) => setCurrentStep(step)}
+            verdictCode={activeVerdict.code}
+            totalScore={activeScore.totalScore}
+            position="left"
+            onTogglePosition={handleToggleNavPosition}
+          />
+        )}
+
+        {/* Main Content Area */}
+        <main className="flex-1 min-w-0 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-12">
         {currentStep === 'S1_START' && (
           <S1Start
             candidates={candidates}
@@ -323,6 +414,9 @@ export default function App() {
               setCurrentStep('S8_REPORT');
             }}
             onAddAllToCompare={handleAddAllToCompare}
+            onDeleteCandidate={handleDeleteCandidate}
+            onToggleLock={handleToggleLockCandidate}
+            onToggleStar={handleToggleStarCandidate}
           />
         )}
 
@@ -333,7 +427,8 @@ export default function App() {
             onSaveSnapshot={handleSaveSnapshot}
           />
         )}
-      </main>
+        </main>
+      </div>
 
       {/* Modals: Region/Commercial Market Hub & Analysis Snapshot History */}
       <RegionMarketModal

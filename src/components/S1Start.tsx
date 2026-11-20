@@ -178,7 +178,7 @@ export const S1Start: React.FC<S1StartProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-slate-800/80 rounded-2xl p-5 border border-slate-700 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold text-blue-400">01 TOP-LINE</span>
+              <span className="text-xs font-extrabold text-blue-400">03 TOP-LINE</span>
               <TrendingUp className="w-4 h-4 text-blue-400" />
             </div>
             <div className="text-base font-bold text-white">얼마나 팔릴까</div>
@@ -192,7 +192,7 @@ export const S1Start: React.FC<S1StartProps> = ({
 
           <div className="bg-slate-800/80 rounded-2xl p-5 border border-slate-700 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold text-emerald-400">02 BOTTOM-LINE</span>
+              <span className="text-xs font-extrabold text-emerald-400">04 BOTTOM-LINE</span>
               <Calculator className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-base font-bold text-white">그래서 남는가</div>
@@ -206,7 +206,7 @@ export const S1Start: React.FC<S1StartProps> = ({
 
           <div className="bg-slate-800/80 rounded-2xl p-5 border border-slate-700 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold text-amber-400">03 RISK</span>
+              <span className="text-xs font-extrabold text-amber-400">05 RISK</span>
               <ShieldCheck className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-base font-bold text-white">해도 되는가</div>
@@ -220,12 +220,12 @@ export const S1Start: React.FC<S1StartProps> = ({
 
           <div className="bg-slate-800/80 rounded-2xl p-5 border border-slate-700 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold text-purple-400">04 DECISION</span>
+              <span className="text-xs font-extrabold text-purple-400">06 DECISION</span>
               <Scale className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-base font-bold text-white">그래서 어떻게</div>
             <div className="text-xs text-slate-300">
-              <span className="text-slate-400">입력:</span> 1~3단계 정량화 결과 종합
+              <span className="text-slate-400">입력:</span> 03~05단계 정량화 결과 종합
             </div>
             <div className="text-xs text-purple-300 font-medium">
               ➔ 출력: 100점 점수, 판정, Gemini AI 리포트

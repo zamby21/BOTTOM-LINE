@@ -858,7 +858,7 @@ export const S2Input: React.FC<S2InputProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-bold mb-2">
             <MapPin className="w-3.5 h-3.5" />
-            S2 후보지 기본 정보 & 임대 조건
+            02 INPUT · 후보지 기본 정보 & 임대 조건
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
             후보지 기본정보
@@ -872,7 +872,7 @@ export const S2Input: React.FC<S2InputProps> = ({
           onClick={onNext}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-sm transition-all"
         >
-          다음: 01 Top-line 매출
+          다음: 03 매출 산정
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>

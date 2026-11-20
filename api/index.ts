@@ -1,6 +1,6 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -23,6 +23,116 @@ function getGeminiClient(): GoogleGenAI {
     });
   }
   return cachedGeminiClient;
+}
+
+function isRetryableGeminiError(error: any): boolean {
+  const status = Number(error?.status ?? error?.code ?? 0);
+  const msg = String(error?.message || '').toUpperCase();
+  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  return (
+    msg.includes('503') ||
+    msg.includes('UNAVAILABLE') ||
+    msg.includes('HIGH DEMAND') ||
+    msg.includes('OVERLOADED') ||
+    msg.includes('429') ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('DEADLINE_EXCEEDED') ||
+    msg.includes('NOT_FOUND') ||
+    msg.includes('404')
+  );
+}
+
+function formatFriendlyGeminiError(error: any, fallbackMessage: string): string {
+  const rawMsg = String(error?.message || '');
+  const upper = rawMsg.toUpperCase();
+  if (
+    !process.env.GEMINI_API_KEY?.trim() ||
+    upper.includes('API_KEY_INVALID') ||
+    upper.includes('API KEY') ||
+    upper.includes('PERMISSION_DENIED') ||
+    upper.includes('403')
+  ) {
+    return 'GEMINI_API_KEY가 유효하지 않거나 서버 환경변수에 설정되지 않았습니다. Settings > Secrets(또는 Vercel 환경변수)를 확인해주세요.';
+  }
+  if (upper.includes('503') || upper.includes('UNAVAILABLE') || upper.includes('HIGH DEMAND') || upper.includes('OVERLOADED')) {
+    return 'AI 모델 서버에 일시적으로 요청이 몰려 응답이 지연되고 있습니다. 잠시 후 다시 실행해주세요.';
+  }
+  if (upper.includes('429') || upper.includes('RESOURCE_EXHAUSTED') || upper.includes('QUOTA')) {
+    return 'AI API 호출 한도(Quota)에 일시적으로 도달했습니다. 잠시 후 다시 시도하거나 직접 입력·객단가 계산기를 이용해주세요.';
+  }
+  return fallbackMessage;
+}
+
+function parseGeminiJsonOutput(rawText?: string): any {
+  const text = (rawText || '').trim();
+  if (!text) return {};
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenceMatch ? fenceMatch[1].trim() : text;
+  try {
+    return JSON.parse(candidate);
+  } catch {
+    const braceMatch = candidate.match(/\{[\s\S]*\}/);
+    if (braceMatch) {
+      return JSON.parse(braceMatch[0]);
+    }
+    throw new Error('AI 응답 JSON 파싱에 실패했습니다.');
+  }
+}
+
+async function generateGeminiWithFallback(options: {
+  contents: string;
+  config?: Record<string, any>;
+  models?: string[];
+  fastMode?: boolean;
+}) {
+  const models = options.models || ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'];
+  const baseConfig: Record<string, any> = { ...(options.config || {}) };
+  // Never pass deprecated sampling params to Gemini 4 series models
+  delete baseConfig.temperature;
+  delete baseConfig.topP;
+  delete baseConfig.topK;
+
+  const client = getGeminiClient();
+  let lastError: any = null;
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    const perModelConfig: Record<string, any> = { ...baseConfig };
+    if (options.fastMode && model === 'gemini-4-hydrogen' && !perModelConfig.thinkingConfig) {
+      perModelConfig.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+    }
+
+    const timeoutMs = options.fastMode ? (i === 0 ? 9000 : 12000) : i === 0 ? 15000 : 15000;
+    const attemptsForModel = i === models.length - 1 ? 2 : 1;
+
+    for (let attempt = 1; attempt <= attemptsForModel; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await client.models.generateContent({
+          model,
+          contents: options.contents,
+          config: {
+            ...perModelConfig,
+            abortSignal: controller.signal,
+          },
+        });
+        return res;
+      } catch (err: any) {
+        lastError = err;
+        const isAbort = err?.name === 'AbortError' || controller.signal.aborted;
+        if (!isAbort && !isRetryableGeminiError(err)) {
+          throw err;
+        }
+        const delayMs = isAbort ? 150 : attempt === 1 ? 400 : 800;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+
+  throw lastError || new Error('AI 모델 호출에 실패했습니다.');
 }
 
 const DATA_GO_KR_ENV_ALIASES = [
@@ -122,13 +232,11 @@ app.post('/api/gemini/report', async (req: Request, res: Response) => {
 5. 📋 실행 로드맵 & 단계별 조치 가이드
 `;
 
-    const response = await getGeminiClient().models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiWithFallback({
       contents: prompt,
       config: {
         systemInstruction:
           '당신은 상업용 부동산 및 프랜차이즈 가맹 창업 심사 전문 최고 수석 위원입니다. 뜬구름 잡는 조언 대신 제공된 재무 수치와 법률 규제 데이터를 근거로 구체적인 원인 분석과 협상 방안을 제시하십시오.',
-        temperature: 0.7,
       },
     });
 
@@ -140,7 +248,7 @@ app.post('/api/gemini/report', async (req: Request, res: Response) => {
     console.error('Gemini report error:', error);
     res.status(500).json({
       success: false,
-      error: error?.message || '리포트 생성 중 오류가 발생했습니다.',
+      error: formatFriendlyGeminiError(error, '리포트 생성 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'),
     });
   }
 });
@@ -148,43 +256,68 @@ app.post('/api/gemini/report', async (req: Request, res: Response) => {
 // Endpoint: AI revenue estimation helper
 app.post('/api/gemini/estimate-revenue', async (req: Request, res: Response) => {
   try {
-    const { address, businessType, areaSqm, floor } = req.body;
+    const { address, businessType, areaSqm, floor } = req.body || {};
+
+    if (!address || typeof address !== 'string' || !address.trim()) {
+      res.status(400).json({
+        success: false,
+        error: '후보지 주소를 먼저 입력한 뒤 AI 매출 추정을 실행해주세요.',
+      });
+      return;
+    }
+
+    const numericArea = Number(areaSqm) > 0 ? Number(areaSqm) : 33;
+    const numericFloor = Number.isFinite(Number(floor)) ? Number(floor) : 1;
 
     const prompt = `
 상권 데이터 분석가로서 다음 상가 매물의 예상 월 매출(공급가액 기준) 범위를 추정해주세요.
 - 주소: ${address}
-- 업종: ${businessType}
-- 전용면적: ${areaSqm}㎡ (약 ${(areaSqm * 0.3025).toFixed(1)}평)
-- 층수: ${floor}층
+- 업종: ${businessType || '일반 상업시설'}
+- 전용면적: ${numericArea}㎡ (약 ${(numericArea * 0.3025).toFixed(1)}평)
+- 층수: ${numericFloor}층
 
-JSON 형식으로 응답해주세요:
-{
-  "minMonthlyRevenue": number (만원 단위 최솟값),
-  "maxMonthlyRevenue": number (만원 단위 최댓값),
-  "recommendedRevenue": number (만원 단위 권장 중앙값),
-  "averageOrderValue": number (원 단위 추정 객단가),
-  "dailyTransactions": number (일평균 예상 결제건수),
-  "peakHours": string (주요 피크 시간대),
-  "rationale": string (추정 근거 요약)
-}
+반드시 현실적인 상권·업종·층수·면적 기준의 숫자로 응답하세요.
 `;
 
-    const response = await getGeminiClient().models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiWithFallback({
       contents: prompt,
+      fastMode: true,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.3,
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            minMonthlyRevenue: { type: Type.NUMBER, description: '만원 단위 예상 월 매출 최솟값' },
+            maxMonthlyRevenue: { type: Type.NUMBER, description: '만원 단위 예상 월 매출 최댓값' },
+            recommendedRevenue: { type: Type.NUMBER, description: '만원 단위 권장 월 매출 중앙값' },
+            averageOrderValue: { type: Type.NUMBER, description: '원 단위 추정 평균 객단가' },
+            dailyTransactions: { type: Type.NUMBER, description: '일평균 예상 결제 건수' },
+            peakHours: { type: Type.STRING, description: '주요 피크 시간대 (예: 12:00~14:00, 18:30~21:00)' },
+            rationale: { type: Type.STRING, description: '추정 근거 요약 (1~2문장)' },
+          },
+          required: [
+            'minMonthlyRevenue',
+            'maxMonthlyRevenue',
+            'recommendedRevenue',
+            'averageOrderValue',
+            'dailyTransactions',
+            'peakHours',
+            'rationale',
+          ],
+        },
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = parseGeminiJsonOutput(response.text);
     res.json({ success: true, data: parsed });
   } catch (error: any) {
     console.error('Revenue estimation error:', error);
     res.status(500).json({
       success: false,
-      error: error?.message || '매출 추정 중 오류가 발생했습니다.',
+      error: formatFriendlyGeminiError(
+        error,
+        'AI 상권 매출 추정 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도하거나 객단가·고객수 계산기를 이용해주세요.'
+      ),
     });
   }
 });
@@ -202,18 +335,18 @@ ${question}
 
 상업용 부동산 전문 컨설턴트로서 핵심만 명쾌하고 실전적인 3~4문장으로 답변해주세요.
 `;
-    const response = await getGeminiClient().models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiWithFallback({
       contents: prompt,
-      config: {
-        temperature: 0.5,
-      },
+      fastMode: true,
     });
 
     res.json({ success: true, answer: response.text });
   } catch (error: any) {
     console.error('Quick advice error:', error);
-    res.status(500).json({ success: false, error: error?.message });
+    res.status(500).json({
+      success: false,
+      error: formatFriendlyGeminiError(error, 'AI 자문 응답 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'),
+    });
   }
 });
 
@@ -243,20 +376,22 @@ app.post('/api/gemini/screen-address', async (req: Request, res: Response) => {
 }
 `;
 
-    const response = await getGeminiClient().models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiWithFallback({
       contents: prompt,
+      fastMode: true,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.2,
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = parseGeminiJsonOutput(response.text);
     res.json({ success: true, data: parsed });
   } catch (error: any) {
     console.error('Screen address error:', error);
-    res.status(500).json({ success: false, error: error?.message });
+    res.status(500).json({
+      success: false,
+      error: formatFriendlyGeminiError(error, '규제 스크리닝 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'),
+    });
   }
 });
 
@@ -295,25 +430,22 @@ app.post('/api/gemini/market-trends', async (req: Request, res: Response) => {
 }
 `;
 
-    const response = await getGeminiClient().models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateGeminiWithFallback({
       contents: prompt,
+      fastMode: true,
       config: {
         responseMimeType: 'application/json',
-        temperature: 0.3,
       },
     });
 
-    const parsed = JSON.parse(response.text || '{}');
+    const parsed = parseGeminiJsonOutput(response.text);
     res.json({ success: true, data: parsed });
   } catch (error: any) {
     console.error('Market trends error:', error);
-    const rawMsg = String(error?.message || '');
-    const friendly =
-      rawMsg.includes('503') || rawMsg.includes('UNAVAILABLE')
-        ? 'AI 분석 서버 요청량이 일시적으로 많습니다. 잠시 후 다시 시도해주세요.'
-        : rawMsg || '지역 상권 분석 중 오류가 발생했습니다.';
-    res.status(500).json({ success: false, error: friendly });
+    res.status(500).json({
+      success: false,
+      error: formatFriendlyGeminiError(error, '지역 상권 분석 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'),
+    });
   }
 });
 
@@ -387,8 +519,7 @@ ${buildingName ? `- 건물명: ${buildingName}` : ''}
 }
 `;
 
-    const response = await getGeminiClient().models.generateContent({
-      model: 'gemini-4-hydrogen',
+    const response = await generateGeminiWithFallback({
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],

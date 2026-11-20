@@ -24,6 +24,11 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  Lock,
+  Unlock,
+  Star,
+  Shield,
+  X,
 } from 'lucide-react';
 
 interface S7CompareProps {
@@ -36,6 +41,9 @@ interface S7CompareProps {
   onGoToDecision?: (candidateId: string) => void;
   onGoToReport?: (candidateId: string) => void;
   onAddAllToCompare?: () => void;
+  onDeleteCandidate?: (candidateId: string) => void;
+  onToggleLock?: (candidateId: string) => void;
+  onToggleStar?: (candidateId: string) => void;
 }
 
 export const S7Compare: React.FC<S7CompareProps> = ({
@@ -48,9 +56,33 @@ export const S7Compare: React.FC<S7CompareProps> = ({
   onGoToDecision,
   onGoToReport,
   onAddAllToCompare,
+  onDeleteCandidate,
+  onToggleLock,
+  onToggleStar,
 }) => {
   const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
   const [showManager, setShowManager] = useState(false);
+  const [poolFilter, setPoolFilter] = useState<'all' | 'starred' | 'locked'>('all');
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [statusToast, setStatusToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setStatusToast(msg);
+    setTimeout(() => {
+      setStatusToast((prev) => (prev === msg ? null : prev));
+    }, 3000);
+  };
+
+  const starredCount = candidates.filter((c) => c.isStarred).length;
+  const lockedCount = candidates.filter((c) => c.isLocked).length;
+  const filteredPoolCandidates = candidates.filter((c) => {
+    if (poolFilter === 'starred') return Boolean(c.isStarred);
+    if (poolFilter === 'locked') return Boolean(c.isLocked);
+    return true;
+  });
+  const deleteTarget = deleteTargetId
+    ? candidates.find((c) => c.id === deleteTargetId) || null
+    : null;
 
   // Filter candidates that are added to comparison pool
   const comparedCandidates = candidates.filter((c) => c.addedToCompare === true);
@@ -119,13 +151,13 @@ export const S7Compare: React.FC<S7CompareProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-bold mb-1.5">
             <Scale className="w-3.5 h-3.5" />
-            S7 후보지 다중 비교
+            07 COMPARE · 후보지 다중 비교
           </div>
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
-            04 종합판정 후보지 다자간 비교 및 순위 검증
+            06 종합판정 후보지 다자간 비교 및 순위 검증
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            04 종합판정을 완료한 후보지들을 비교함에 모아 100점 만점 총점, 실질 순영업이익, 회수기간, 6대 규제를 비교합니다.
+            06 종합판정을 완료한 후보지들을 비교함에 모아 100점 만점 총점, 실질 순영업이익, 회수기간, 6대 규제를 비교합니다.
           </p>
         </div>
 
@@ -184,22 +216,76 @@ export const S7Compare: React.FC<S7CompareProps> = ({
         </div>
       </div>
 
+      {/* Status Toast */}
+      {statusToast && (
+        <div className="bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md flex items-center justify-between gap-3 border border-slate-700">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span>{statusToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStatusToast(null)}
+            className="text-slate-400 hover:text-white cursor-pointer"
+            aria-label="알림 닫기"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Comparison Candidates Pool Manager Drawer */}
       {(showManager || comparedCandidates.length === 0) && (
-        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-indigo-200 shadow-sm space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
-            <div className="flex items-center gap-2">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-indigo-200 shadow-sm space-y-3.5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5 border-b border-slate-100 pb-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Layers className="w-4 h-4 text-indigo-600" />
               <h3 className="font-bold text-slate-900 text-sm sm:text-base">
-                비교 대상 후보지 관리 (04 종합판정 완료 매물 풀)
+                비교 대상 후보지 관리 (06 종합판정 완료 매물 풀)
               </h3>
+              <span className="text-[11px] font-semibold text-slate-500">
+                · 별표(★) 표시 및 잠금(🔒) 시 삭제 보호
+              </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Quick Pool Filter */}
+              <div className="inline-flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPoolFilter('all')}
+                  className={`px-2 py-1 rounded-md transition-colors cursor-pointer ${
+                    poolFilter === 'all' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  전체 ({candidates.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPoolFilter('starred')}
+                  className={`px-2 py-1 rounded-md inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                    poolFilter === 'starred' ? 'bg-white text-amber-700 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Star className="w-3 h-3 text-amber-500 fill-amber-400" />
+                  별표 ({starredCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPoolFilter('locked')}
+                  className={`px-2 py-1 rounded-md inline-flex items-center gap-1 transition-colors cursor-pointer ${
+                    poolFilter === 'locked' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Lock className="w-3 h-3 text-slate-600" />
+                  잠금 ({lockedCount})
+                </button>
+              </div>
+
               {uncomparedCandidates.length > 0 && onAddAllToCompare && (
                 <button
                   type="button"
                   onClick={onAddAllToCompare}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline"
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline cursor-pointer"
                 >
                   미등록 매물 전체 비교함 담기
                 </button>
@@ -207,80 +293,193 @@ export const S7Compare: React.FC<S7CompareProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {candidates.map((cand) => {
-              const m = calculateFinancialMetrics(cand);
-              const r = evaluateRiskRules(cand);
-              const { scoreBreakdown: sc, verdict: vd } = calculateDecisionScore(m, r);
-              const isAdded = cand.addedToCompare === true;
+          {filteredPoolCandidates.length === 0 ? (
+            <div className="py-6 text-center text-xs text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+              {poolFilter === 'starred'
+                ? '별표(★) 표시된 후보지가 없습니다. 각 후보지 카드 하단의 별표 아이콘으로 중요 매물을 표시해 보세요.'
+                : '잠금(🔒) 설정된 후보지가 없습니다. 삭제를 방지할 매물의 자물쇠 아이콘을 눌러 잠글 수 있습니다.'}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredPoolCandidates.map((cand) => {
+                const m = calculateFinancialMetrics(cand);
+                const r = evaluateRiskRules(cand);
+                const { scoreBreakdown: sc, verdict: vd } = calculateDecisionScore(m, r);
+                const isAdded = cand.addedToCompare === true;
+                const isLocked = Boolean(cand.isLocked);
+                const isStarred = Boolean(cand.isStarred);
+                const isLastRemaining = candidates.length <= 1;
+                const canDelete = !isLocked && !isLastRemaining && Boolean(onDeleteCandidate);
 
-              return (
-                <div
-                  key={cand.id}
-                  className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
-                    isAdded
-                      ? 'bg-indigo-50/50 border-indigo-200'
-                      : 'bg-slate-50 border-slate-200 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-[11px] font-bold text-slate-500 truncate max-w-[150px]">
-                        {cand.businessName}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${vd.badgeClass}`}>
-                        {vd.title} ({sc.totalScore}점)
-                      </span>
+                return (
+                  <div
+                    key={cand.id}
+                    className={`p-3.5 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                      isLocked
+                        ? 'bg-slate-50/90 border-slate-300 ring-1 ring-slate-300/60'
+                        : isStarred
+                        ? 'bg-amber-50/40 border-amber-300'
+                        : isAdded
+                        ? 'bg-indigo-50/50 border-indigo-200'
+                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1 min-w-0">
+                          <span className="text-[11px] font-bold text-slate-500 truncate max-w-[115px]">
+                            {cand.businessName}
+                          </span>
+                          {isStarred && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] font-extrabold flex-shrink-0">
+                              <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
+                              중요
+                            </span>
+                          )}
+                          {isLocked && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-800 text-white text-[9px] font-extrabold flex-shrink-0">
+                              <Lock className="w-2.5 h-2.5" />
+                              보호
+                            </span>
+                          )}
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black flex-shrink-0 ${vd.badgeClass}`}>
+                          {vd.title} ({sc.totalScore}점)
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-slate-900 text-xs sm:text-sm truncate">
+                        {cand.name}
+                      </h4>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {cand.address}
+                      </p>
+                      <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-slate-200/60">
+                        <span>월매출: <strong>{cand.grossRevenue}만</strong></span>
+                        <span>순이익: <strong className={m.monthlyOperatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                          {Math.round(m.monthlyOperatingProfit)}만
+                        </strong></span>
+                      </div>
                     </div>
-                    <h4 className="font-bold text-slate-900 text-xs sm:text-sm truncate">
-                      {cand.name}
-                    </h4>
-                    <p className="text-[11px] text-slate-500 truncate">
-                      {cand.address}
-                    </p>
-                    <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-slate-200/60">
-                      <span>월매출: <strong>{cand.grossRevenue}만</strong></span>
-                      <span>순이익: <strong className={m.monthlyOperatingProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
-                        {Math.round(m.monthlyOperatingProfit)}만
-                      </strong></span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => onToggleCompare(cand.id)}
-                      className={`flex-1 py-1.5 px-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-1 transition-all ${
-                        isAdded
-                          ? 'bg-white border border-indigo-300 text-indigo-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300'
-                          : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-2xs'
-                      }`}
-                    >
-                      {isAdded ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>비교 중 (제외)</span>
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>04 판정 비교함 추가</span>
-                        </>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => onToggleCompare(cand.id)}
+                        className={`flex-1 h-8 px-2 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
+                          isAdded
+                            ? 'bg-white border border-indigo-300 text-indigo-700 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-2xs'
+                        }`}
+                      >
+                        {isAdded ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                            <span>비교 중 (제외)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>비교함 추가</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Star (Favorite) Toggle */}
+                      {onToggleStar && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onToggleStar(cand.id);
+                            showToast(
+                              isStarred
+                                ? `'${cand.name}'의 별표 표시를 해제했습니다.`
+                                : `'${cand.name}'을(를) 중요 후보지(★)로 표시했습니다.`
+                            );
+                          }}
+                          title={isStarred ? '별표 해제' : '중요 후보지 별표 표시'}
+                          aria-label={isStarred ? '별표 해제' : '중요 후보지 별표 표시'}
+                          className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-colors flex-shrink-0 cursor-pointer ${
+                            isStarred
+                              ? 'bg-amber-50 border-amber-300 text-amber-500 hover:bg-amber-100'
+                              : 'bg-white border-slate-200 text-slate-400 hover:text-amber-500 hover:border-amber-300'
+                          }`}
+                        >
+                          <Star className={`w-3.5 h-3.5 ${isStarred ? 'fill-amber-400' : ''}`} />
+                        </button>
                       )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCandidateDetail(cand.id)}
-                      title="04 종합판정 보기"
-                      className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-white rounded-lg border border-slate-200"
-                    >
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+
+                      {/* Lock (Prevent Delete) Toggle */}
+                      {onToggleLock && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onToggleLock(cand.id);
+                            showToast(
+                              isLocked
+                                ? `'${cand.name}'의 삭제 보호 잠금을 해제했습니다.`
+                                : `'${cand.name}'을(를) 잠금(🔒) 처리하여 삭제되지 않도록 보호했습니다.`
+                            );
+                          }}
+                          title={isLocked ? '잠금 해제 (삭제 허용)' : '삭제 방지 잠금'}
+                          aria-label={isLocked ? '잠금 해제' : '삭제 방지 잠금'}
+                          className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-colors flex-shrink-0 cursor-pointer ${
+                            isLocked
+                              ? 'bg-slate-800 border-slate-800 text-white hover:bg-slate-700'
+                              : 'bg-white border-slate-200 text-slate-400 hover:text-slate-800 hover:border-slate-300'
+                          }`}
+                        >
+                          {isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+
+                      {/* Delete Candidate Button (Protected when locked or last item) */}
+                      {onDeleteCandidate && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isLocked) {
+                              showToast(`'${cand.name}'은(는) 잠금 보호 상태입니다. 자물쇠(🔒)를 해제한 뒤 삭제하세요.`);
+                              return;
+                            }
+                            if (isLastRemaining) {
+                              showToast('최소 1개의 후보지는 유지되어야 합니다.');
+                              return;
+                            }
+                            setDeleteTargetId(cand.id);
+                          }}
+                          title={
+                            isLocked
+                              ? '잠금 보호 중 (잠금 해제 후 삭제 가능)'
+                              : isLastRemaining
+                              ? '최소 1개의 후보지는 유지되어야 합니다'
+                              : '후보지 영구 삭제'
+                          }
+                          aria-label="후보지 삭제"
+                          className={`h-8 w-8 flex items-center justify-center rounded-lg border transition-colors flex-shrink-0 ${
+                            canDelete
+                              ? 'bg-white border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 hover:border-rose-300 cursor-pointer'
+                              : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'
+                          }`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => handleCandidateDetail(cand.id)}
+                        title="06 종합판정 보기"
+                        aria-label="06 종합판정 보기"
+                        className="h-8 w-8 flex items-center justify-center bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-lg border border-slate-200 flex-shrink-0 cursor-pointer"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -296,7 +495,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
               비교함에 등록된 후보지가 없습니다
             </h3>
             <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
-              <strong>04 종합판정</strong>을 받은 후보지들만 비교함에 담아서, 100점 만점 총점과 손익분기점, 규제 통과 여부를 객관적으로 대조합니다.
+              <strong>06 종합판정</strong>을 받은 후보지들만 비교함에 담아서, 100점 만점 총점과 손익분기점, 규제 통과 여부를 객관적으로 대조합니다.
             </p>
           </div>
 
@@ -328,7 +527,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
               onClick={() => handleCandidateDetail(activeCandidateId || candidates[0]?.id)}
               className="inline-flex items-center gap-1 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-bold"
             >
-              <span>04 종합판정 검토하러 가기</span>
+              <span>06 종합판정 검토하러 가기</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -462,9 +661,23 @@ export const S7Compare: React.FC<S7CompareProps> = ({
 
                   {/* Candidate Name & Address */}
                   <div>
-                    <h3 className="font-extrabold text-slate-900 text-sm sm:text-base leading-snug">
-                      {candidate.name}
-                    </h3>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="font-extrabold text-slate-900 text-sm sm:text-base leading-snug">
+                        {candidate.name}
+                      </h3>
+                      {candidate.isStarred && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-extrabold">
+                          <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
+                          별표
+                        </span>
+                      )}
+                      {candidate.isLocked && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-800 text-white text-[10px] font-extrabold">
+                          <Lock className="w-2.5 h-2.5" />
+                          잠금
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-500 truncate mt-0.5">
                       {candidate.address} {candidate.detailAddress ? `(${candidate.detailAddress})` : ''}
                     </p>
@@ -486,7 +699,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                       </strong>
                     </div>
                     <div className="flex-1 text-center">
-                      <span className="text-[10px] text-slate-400 block font-semibold">04 판정 순위</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">06 판정 순위</span>
                       <strong className="text-purple-700 font-extrabold text-xs sm:text-sm">
                         {scoreRank}위 <span className="text-[10px] font-normal text-slate-500">({scoreBreakdown.totalScore}점)</span>
                       </strong>
@@ -624,7 +837,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                       className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-1 transition-colors shadow-2xs"
                     >
                       <Award className="w-3.5 h-3.5" />
-                      <span>04 종합판정 상세</span>
+                      <span>06 종합판정 상세</span>
                     </button>
 
                     <button
@@ -676,7 +889,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                 {/* 04 Decision Verdict */}
                 <tr className="hover:bg-slate-50/50">
                   <td className="p-3 sm:p-4 font-bold text-slate-800 bg-slate-50/50">
-                    04 종합판정 등급
+                    06 종합판정 등급
                   </td>
                   {sortedByScore.map((item) => (
                     <td key={item.candidate.id} className="p-3 sm:p-4 text-center">
@@ -885,7 +1098,7 @@ export const S7Compare: React.FC<S7CompareProps> = ({
                           onClick={() => handleCandidateDetail(item.candidate.id)}
                           className="w-full py-1.5 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs"
                         >
-                          04 판정 상세
+                          06 판정 상세
                         </button>
                         <button
                           type="button"
@@ -930,6 +1143,119 @@ export const S7Compare: React.FC<S7CompareProps> = ({
               <span>최우수 매물 AI 리포트 출력</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-candidate-modal-title"
+          onClick={() => setDeleteTargetId(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center flex-shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 id="delete-candidate-modal-title" className="text-sm sm:text-base font-extrabold text-slate-900">
+                    후보지 삭제 확인
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    삭제 전 대상 매물 정보를 확인해 주세요.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteTargetId(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+                aria-label="모달 닫기"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5">
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-slate-500">{deleteTarget.businessName}</span>
+                  {deleteTarget.isStarred && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-extrabold">
+                      <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
+                      별표 중요 후보지
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm font-extrabold text-slate-900">{deleteTarget.name}</div>
+                <div className="text-xs text-slate-500">{deleteTarget.address}</div>
+                <div className="text-[11px] text-slate-600 pt-1">
+                  월매출 <strong>{deleteTarget.grossRevenue.toLocaleString()}만원</strong> · 보증금 {deleteTarget.deposit.toLocaleString()}만 / 월세 {deleteTarget.monthlyRent.toLocaleString()}만
+                </div>
+              </div>
+
+              {deleteTarget.isStarred && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <span>
+                    <strong>별표(★)</strong>로 표시된 중요 후보지입니다. 실수로 삭제되지 않도록 보호하려면 아래 <strong>잠금 보호</strong>를 선택하세요.
+                  </span>
+                </div>
+              )}
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                삭제하면 해당 후보지 데이터가 <strong>비교 대상 풀 및 상단 검토 매물 목록에서 영구 제거</strong>되며 복구할 수 없습니다.
+              </p>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTargetId(null)}
+                className="px-3.5 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+              >
+                취소
+              </button>
+
+              {onToggleLock && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleLock(deleteTarget.id);
+                    setDeleteTargetId(null);
+                    showToast(`'${deleteTarget.name}'을(를) 삭제하지 않고 잠금(🔒) 보호했습니다.`);
+                  }}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  잠금 보호
+                </button>
+              )}
+
+              {onDeleteCandidate && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const removedName = deleteTarget.name;
+                    onDeleteCandidate(deleteTarget.id);
+                    setDeleteTargetId(null);
+                    showToast(`'${removedName}' 후보지가 삭제되었습니다.`);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  영구 삭제 확인
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

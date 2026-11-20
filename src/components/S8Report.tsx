@@ -139,7 +139,7 @@ ${candidate.aiReport || verdict.summary}`;
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-bold mb-1">
             <Sparkles className="w-3.5 h-3.5" />
-            S8 AI 입점 심사 및 종합 리포트
+            08 REPORT · AI 입점 심사 및 종합 리포트
           </div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-900">
             전문가 브리핑용 판정 리포트

@@ -64,7 +64,10 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
     try {
       const response = await fetch('/api/gemini/estimate-revenue', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
         body: JSON.stringify({
           address: candidate.address,
           businessType: candidate.businessName,
@@ -73,8 +76,17 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
         }),
       });
 
-      const json = await response.json();
-      if (json.success && json.data) {
+      const rawText = await response.text();
+      let json: any = null;
+      if (rawText.trim().startsWith('{')) {
+        try {
+          json = JSON.parse(rawText);
+        } catch {
+          json = null;
+        }
+      }
+
+      if (json?.success && json.data) {
         const est = json.data;
         const recommendedGross = est.recommendedRevenue || Math.round((est.minMonthlyRevenue + est.maxMonthlyRevenue) / 2);
 
@@ -95,10 +107,14 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
           },
         });
       } else {
-        setEstimateError(json.error || 'AI 매출 추정에 실패했습니다.');
+        const errMsg =
+          typeof json?.error === 'string'
+            ? json.error
+            : 'AI 모델 서버 응답이 일시적으로 지연되고 있습니다. 잠시 후 다시 실행해주세요.';
+        setEstimateError(errMsg);
       }
-    } catch (err: any) {
-      setEstimateError(err.message || '네트워크 오류가 발생했습니다.');
+    } catch {
+      setEstimateError('네트워크 통신 중 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setIsEstimating(false);
     }
@@ -116,7 +132,7 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-bold mb-1">
             <TrendingUp className="w-3.5 h-3.5" />
-            01 TOP-LINE (얼마나 팔릴까)
+            03 TOP-LINE (얼마나 팔릴까)
           </div>
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             월 추정 매출액 산정 (Top-Line)
@@ -348,8 +364,16 @@ export const S3TopLine: React.FC<S3TopLineProps> = ({
         </div>
 
         {estimateError && (
-          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
-            {estimateError}
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex flex-wrap items-center justify-between gap-2">
+            <span>{estimateError}</span>
+            <button
+              type="button"
+              disabled={isEstimating}
+              onClick={handleAiEstimate}
+              className="px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-rose-700 font-bold hover:bg-rose-100 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              다시 시도
+            </button>
           </div>
         )}
 

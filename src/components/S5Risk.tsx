@@ -111,7 +111,7 @@ export const S5Risk: React.FC<S5RiskProps> = ({
         <div>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 text-xs font-bold mb-2">
             <ShieldAlert className="w-3.5 h-3.5" />
-            03 RISK (해도 되는가)
+            05 RISK (해도 되는가)
           </div>
           <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
             6대 법률·행정 규제 점검 & 실사 근거 기록

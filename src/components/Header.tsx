@@ -44,9 +44,9 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs print:hidden">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
-          {/* Logo & Value Hook */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-5 xl:px-8">
+        <div className="flex items-center justify-between h-14 sm:h-16 gap-2 xl:gap-3">
+          {/* Logo */}
           <button
             type="button"
             onClick={() => {
@@ -58,41 +58,37 @@ export const Header: React.FC<HeaderProps> = ({
             }}
             title="첫 화면으로 새로고침"
             aria-label="BOTTOM LINE 첫 화면으로 페이지 새로고침"
-            className="flex items-center gap-2 sm:gap-3 min-w-0 text-left cursor-pointer hover:opacity-85 active:scale-[0.99] transition-all rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="flex items-center gap-2 xl:gap-2.5 flex-shrink-0 text-left cursor-pointer hover:opacity-85 active:scale-[0.99] transition-all rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-700 via-indigo-700 to-slate-900 flex items-center justify-center text-white shadow-xs flex-shrink-0">
-              <Building2 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-200" />
+            <div className="w-8 h-8 xl:w-9 xl:h-9 rounded-xl bg-gradient-to-br from-blue-700 via-indigo-700 to-slate-900 flex items-center justify-center text-white shadow-xs flex-shrink-0">
+              <Building2 className="w-4 h-4 xl:w-5 xl:h-5 text-blue-200" />
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <span className="font-black text-base sm:text-lg tracking-tight text-slate-900">
-                  BOTTOM LINE
-                </span>
-                <span className="px-1.5 py-0.5 text-[10px] sm:text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md truncate">
-                  상업용 부동산 판정
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 truncate hidden md:block">
-                Top-line 매출추정 한계 극복 ➔ 비용구조(Bottom-line) & 6대 규제(Risk) 종합 의사결정
-              </p>
+            <div className="flex items-center gap-1.5 xl:gap-2 whitespace-nowrap">
+              <span className="font-black text-sm sm:text-base xl:text-lg tracking-tight text-slate-900 leading-none">
+                BOTTOM LINE
+              </span>
+              <span className="px-1.5 xl:px-2 py-0.5 text-[10px] xl:text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-md leading-tight whitespace-nowrap">
+                상업용 부동산 판정
+              </span>
             </div>
           </button>
 
-          {/* Desktop Candidate Switcher & Actions */}
-          <div className="hidden lg:flex items-center gap-2">
-            <div className="flex items-center bg-slate-100 rounded-lg p-1 border border-slate-200">
-              <span className="text-xs font-semibold text-slate-500 px-2 flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5" />
-                검토 매물:
+          {/* Desktop Candidate Switcher & Uniform Action Buttons */}
+          <div className="hidden lg:flex items-center justify-end gap-1.5 xl:gap-2 flex-1 min-w-0">
+            {/* Candidate Switcher */}
+            <div className="flex items-center h-9 bg-slate-100 rounded-lg px-1.5 border border-slate-200 gap-1.5 flex-1 min-w-[195px] max-w-[245px] xl:max-w-[320px]">
+              <span className="text-[11px] xl:text-xs font-bold text-slate-600 pl-0.5 flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+                <Layers className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                검토 매물
               </span>
               <select
                 value={activeCandidateId}
                 onChange={(e) => onSelectCandidate(e.target.value)}
-                className="bg-white border-0 text-xs font-semibold text-slate-800 rounded-md px-2.5 py-1 shadow-2xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer max-w-[240px] truncate"
+                className="h-7 flex-1 min-w-0 bg-white border border-slate-200/80 text-[11px] xl:text-xs font-semibold text-slate-800 rounded-md px-1.5 xl:px-2 shadow-2xs focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer truncate"
               >
                 {candidates.map((c, idx) => (
                   <option key={c.id} value={c.id}>
-                    #{idx + 1}. {c.name} {c.addedToCompare ? '⭐' : ''}
+                    #{idx + 1}. {c.isStarred ? '★ ' : ''}{c.isLocked ? '🔒 ' : ''}{c.name}
                   </option>
                 ))}
               </select>
@@ -100,59 +96,65 @@ export const Header: React.FC<HeaderProps> = ({
                 type="button"
                 onClick={onAddCandidate}
                 title="새 후보지 추가"
-                className="ml-1 p-1 text-slate-600 hover:text-blue-600 hover:bg-white rounded-md transition-colors"
+                className="w-7 h-7 flex items-center justify-center text-slate-600 hover:text-blue-600 hover:bg-white rounded-md transition-colors flex-shrink-0 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
               </button>
             </div>
 
-            {onOpenRegionMarket && (
+            {/* Uniform 4 Action Buttons */}
+            <div className="grid grid-cols-4 gap-1.5 flex-shrink-0">
+              {onOpenRegionMarket && (
+                <button
+                  type="button"
+                  onClick={onOpenRegionMarket}
+                  className="h-9 w-[108px] xl:w-[124px] flex items-center justify-center gap-1 xl:gap-1.5 px-1.5 xl:px-2 text-[11px] xl:text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 rounded-lg transition-colors shadow-2xs whitespace-nowrap cursor-pointer"
+                  title="지역·상권 통계 및 임대 수준 비교"
+                >
+                  <BarChart3 className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
+                  <span>지역 데이터</span>
+                </button>
+              )}
+
+              {onOpenHistory && (
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  className="h-9 w-[108px] xl:w-[124px] flex items-center justify-center gap-1 xl:gap-1.5 px-1.5 xl:px-2 text-[11px] xl:text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 rounded-lg transition-colors shadow-2xs tabular-nums whitespace-nowrap cursor-pointer"
+                  title="저장된 분석 히스토리"
+                >
+                  <History className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                  <span>분석 이력 ({historyCount})</span>
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={onOpenRegionMarket}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs"
-                title="지역·상권 통계 및 임대 수준 비교"
+                onClick={onOpenCompare}
+                className="h-9 w-[108px] xl:w-[124px] flex items-center justify-center gap-1 xl:gap-1.5 px-1.5 xl:px-2 text-[11px] xl:text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:border-slate-400 rounded-lg transition-colors shadow-2xs tabular-nums whitespace-nowrap cursor-pointer"
+                title="후보지 비교"
               >
-                <BarChart3 className="w-3.5 h-3.5 text-purple-600" />
-                지역 데이터
+                <Scale className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                <span>후보지 비교 ({comparedCount})</span>
               </button>
-            )}
 
-            {onOpenHistory && (
               <button
                 type="button"
-                onClick={onOpenHistory}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs tabular-nums"
-                title="저장된 분석 히스토리"
+                onClick={onOpenReport}
+                className="h-9 w-[108px] xl:w-[124px] flex items-center justify-center gap-1 xl:gap-1.5 px-1.5 xl:px-2 text-[11px] xl:text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-2xs whitespace-nowrap cursor-pointer"
+                title="AI 종합 리포트"
               >
-                <History className="w-3.5 h-3.5 text-blue-600" />
-                분석 이력 ({historyCount})
+                <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>AI 리포트</span>
               </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onOpenCompare}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors shadow-2xs tabular-nums"
-            >
-              <Scale className="w-3.5 h-3.5 text-indigo-600" />
-              후보지 비교 ({comparedCount})
-            </button>
-
-            <button
-              type="button"
-              onClick={onOpenReport}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors shadow-2xs"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              AI 리포트
-            </button>
+            </div>
 
             <button
               type="button"
               onClick={onResetPresets}
               title="예시 3곳 초기화"
-              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              aria-label="예시 3곳 초기화"
+              className="h-9 w-8 xl:w-9 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 border border-transparent hover:border-slate-200 rounded-lg transition-colors flex-shrink-0 cursor-pointer"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -212,7 +214,7 @@ export const Header: React.FC<HeaderProps> = ({
                     }`}
                   >
                     <span className="truncate">
-                      #{idx + 1}. {c.name}
+                      #{idx + 1}. {c.isStarred ? '★ ' : ''}{c.isLocked ? '🔒 ' : ''}{c.name}
                     </span>
                     <span className="text-[10px] opacity-80 flex-shrink-0 ml-2">
                       {c.deposit}만 / {c.monthlyRent}만
