@@ -24,6 +24,8 @@ interface StepNavProps {
   totalScore?: number;
   position: StepNavPosition;
   onTogglePosition: () => void;
+  isMobileView?: boolean;
+  containerClass?: string;
 }
 
 interface StepItem {
@@ -48,10 +50,10 @@ export const STEPS: StepItem[] = [
 export const StepNav: React.FC<StepNavProps> = ({
   currentStep,
   onStepChange,
-  verdictCode,
-  totalScore,
   position,
   onTogglePosition,
+  isMobileView = false,
+  containerClass = 'max-w-[1440px] mx-auto px-3 sm:px-5 lg:px-6',
 }) => {
   const currentIndex = STEPS.findIndex((s) => s.id === currentStep);
   const activeStep = STEPS[currentIndex] || STEPS[0];
@@ -69,54 +71,35 @@ export const StepNav: React.FC<StepNavProps> = ({
     }
   };
 
-  const renderScoreBadge = (isActive: boolean) => {
-    if (totalScore === undefined) return null;
-    return (
-      <span
-        className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold leading-none whitespace-nowrap ${
-          isActive
-            ? 'bg-white text-blue-700'
-            : verdictCode === 'GO'
-            ? 'bg-emerald-100 text-emerald-700'
-            : verdictCode === 'CONDITIONAL'
-            ? 'bg-amber-100 text-amber-700'
-            : 'bg-rose-100 text-rose-700'
-        }`}
-      >
-        {totalScore}점
-      </span>
-    );
-  };
-
-  // Left Vertical Sticky Sidebar Mode (Desktop >= lg)
-  if (position === 'left') {
+  // Left Vertical Sticky Sidebar Mode (Compact width & vertical spacing)
+  if (position === 'left' && !isMobileView) {
     return (
       <aside
         aria-label="단계별 분석 좌측 메뉴"
-        className="hidden lg:flex flex-col w-60 xl:w-64 flex-shrink-0 sticky top-16 self-start h-[calc(100vh-4rem)] bg-white/95 backdrop-blur-md border-r border-slate-200 shadow-2xs z-30 print:hidden"
+        className="hidden lg:flex flex-col w-48 xl:w-52 flex-shrink-0 sticky top-15 self-start h-[calc(100vh-3.75rem)] bg-white/95 backdrop-blur-md border-r border-slate-200 shadow-2xs z-30 print:hidden"
       >
         {/* Sidebar Top Header + Toggle Back to Horizontal Top */}
-        <div className="px-3.5 py-3 border-b border-slate-100 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5 min-w-0">
+        <div className="px-2.5 py-2 border-b border-slate-100 space-y-1.5">
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1 min-w-0">
               <span className="text-[11px] font-extrabold text-slate-700 whitespace-nowrap">
                 분석 단계
               </span>
-              <span className="text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md tabular-nums">
-                {currentIndex + 1} / {STEPS.length}
+              <span className="text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md tabular-nums leading-none">
+                {currentIndex + 1}/{STEPS.length}
               </span>
             </div>
             <button
               type="button"
               onClick={onTogglePosition}
               title="상단 가로 고정 메뉴로 전환"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold text-slate-600 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 border border-slate-200 hover:border-blue-300 transition-colors whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center gap-1 px-1.5 py-1 rounded-md text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 border border-slate-200 hover:border-blue-300 transition-colors whitespace-nowrap cursor-pointer"
             >
-              <PanelTop className="w-3.5 h-3.5 flex-shrink-0" />
+              <PanelTop className="w-3 h-3 flex-shrink-0" />
               <span>상단 가로</span>
             </button>
           </div>
-          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+          <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
             <div
               className="bg-blue-600 h-full rounded-full transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
@@ -124,8 +107,8 @@ export const StepNav: React.FC<StepNavProps> = ({
           </div>
         </div>
 
-        {/* Vertical Step List */}
-        <div className="flex-1 overflow-y-auto px-2.5 py-2.5 space-y-1">
+        {/* Compact Vertical Step List */}
+        <div className="flex-1 overflow-y-auto px-2 py-1.5 space-y-0.5">
           {STEPS.map((step) => {
             const Icon = step.icon;
             const isActive = currentStep === step.id;
@@ -135,38 +118,35 @@ export const StepNav: React.FC<StepNavProps> = ({
                 key={step.id}
                 onClick={() => onStepChange(step.id)}
                 type="button"
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all cursor-pointer ${
+                className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-all cursor-pointer ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-600/20'
+                    ? 'bg-blue-600 text-white shadow-xs ring-1 ring-blue-600/20'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
                 <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
                     isActive
                       ? 'bg-white/20 text-white'
                       : 'bg-slate-100 text-slate-600'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className="w-3.5 h-3.5" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider truncate ${
-                        isActive ? 'text-blue-100' : 'text-slate-400'
-                      }`}
-                    >
-                      {step.stageNum}
-                    </span>
-                    {step.id === 'S6_DECISION' && renderScoreBadge(isActive)}
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div
+                    className={`text-[9px] font-bold uppercase tracking-wider truncate ${
+                      isActive ? 'text-blue-100' : 'text-slate-400'
+                    }`}
+                  >
+                    {step.stageNum}
                   </div>
-                  <div className="text-xs font-extrabold leading-snug truncate">
+                  <div className="text-xs font-extrabold truncate">
                     {step.name}
                   </div>
                   <div
-                    className={`text-[10px] truncate mt-0.5 ${
-                      isActive ? 'text-blue-100/90' : 'text-slate-400'
+                    className={`text-[10px] truncate ${
+                      isActive ? 'text-blue-100/85' : 'text-slate-400'
                     }`}
                   >
                     {step.shortDesc}
@@ -178,12 +158,12 @@ export const StepNav: React.FC<StepNavProps> = ({
         </div>
 
         {/* Quick Prev / Next Footer */}
-        <div className="px-2.5 py-2.5 border-t border-slate-100 bg-slate-50/70 grid grid-cols-2 gap-1.5">
+        <div className="px-2 py-2 border-t border-slate-100 bg-slate-50/70 grid grid-cols-2 gap-1.5">
           <button
             type="button"
             onClick={handlePrev}
             disabled={currentIndex === 0}
-            className="h-8 flex items-center justify-center gap-1 rounded-lg bg-white border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
+            className="h-7 flex items-center justify-center gap-0.5 rounded-md bg-white border border-slate-200 text-[11px] font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             이전
@@ -192,7 +172,7 @@ export const StepNav: React.FC<StepNavProps> = ({
             type="button"
             onClick={handleNext}
             disabled={currentIndex === STEPS.length - 1}
-            className="h-8 flex items-center justify-center gap-1 rounded-lg bg-slate-900 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
+            className="h-7 flex items-center justify-center gap-0.5 rounded-md bg-slate-900 text-[11px] font-bold text-white hover:bg-slate-800 disabled:opacity-40 transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
             다음
             <ChevronRight className="w-3.5 h-3.5" />
@@ -202,40 +182,41 @@ export const StepNav: React.FC<StepNavProps> = ({
     );
   }
 
-  // Sticky Top Horizontal Bar Mode (Default, always visible on scroll)
+  // Sticky Top Horizontal Bar Mode (Uniform equal-width step cards on desktop, compact scroller on mobile)
   return (
     <nav
       aria-label="단계별 분석 상단 메뉴"
-      className="sticky top-14 sm:top-16 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 print:hidden shadow-xs"
+      className={`sticky ${
+        isMobileView ? 'top-13' : 'top-14 sm:top-15'
+      } z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 print:hidden shadow-xs`}
     >
       {/* Mobile Compact Progress Bar & Quick Step Switcher */}
-      <div className="lg:hidden px-3 py-2 border-b border-slate-100 bg-slate-50/80">
+      <div
+        className={`${
+          isMobileView ? 'block' : 'lg:hidden'
+        } px-3 py-1.5 border-b border-slate-100 bg-slate-50/80`}
+      >
         <div className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={handlePrev}
             disabled={currentIndex === 0}
-            className="p-1 rounded-lg text-slate-500 disabled:opacity-30 hover:bg-slate-200"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 disabled:opacity-30 hover:bg-slate-200 cursor-pointer"
             aria-label="이전 단계"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
 
           <div className="flex-1 text-center min-w-0">
             <div className="flex items-center justify-center gap-1.5">
-              <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-100/70 px-1.5 py-0.2 rounded">
+              <span className="text-[10px] font-black uppercase text-blue-600 bg-blue-100/70 px-1.5 py-0.5 rounded tabular-nums leading-none">
                 {currentIndex + 1} / {STEPS.length}
               </span>
               <span className="font-extrabold text-xs text-slate-900 truncate">
-                {activeStep.stageNum} {activeStep.name}
+                {activeStep.stageNum} · {activeStep.name}
               </span>
-              {currentStep === 'S6_DECISION' && totalScore !== undefined && (
-                <span className="text-[10px] font-black bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-full">
-                  {totalScore}점
-                </span>
-              )}
             </div>
-            <div className="w-full bg-slate-200 h-1 rounded-full mt-1.5 overflow-hidden">
+            <div className="w-full bg-slate-200 h-1 rounded-full mt-1 overflow-hidden">
               <div
                 className="bg-blue-600 h-full transition-all duration-300"
                 style={{ width: `${progressPercent}%` }}
@@ -247,18 +228,22 @@ export const StepNav: React.FC<StepNavProps> = ({
             type="button"
             onClick={handleNext}
             disabled={currentIndex === STEPS.length - 1}
-            className="p-1 rounded-lg text-slate-500 disabled:opacity-30 hover:bg-slate-200"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 disabled:opacity-30 hover:bg-slate-200 cursor-pointer"
             aria-label="다음 단계"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* Horizontal Scrollable Tabs + Left Sidebar Toggle */}
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-2">
-          <div className="flex-1 flex space-x-1.5 sm:space-x-2 py-2 overflow-x-auto no-scrollbar">
+      {/* Equal-Width Horizontal Tabs (Desktop grid-cols-8, Mobile scrollable) + Left Sidebar Toggle */}
+      <div className={containerClass}>
+        <div className="flex items-center gap-2 py-1.5">
+          <div
+            className={`flex-1 flex gap-1.5 overflow-x-auto no-scrollbar ${
+              isMobileView ? '' : 'lg:grid lg:grid-cols-8 lg:overflow-visible'
+            }`}
+          >
             {STEPS.map((step) => {
               const Icon = step.icon;
               const isActive = currentStep === step.id;
@@ -268,33 +253,42 @@ export const StepNav: React.FC<StepNavProps> = ({
                   key={step.id}
                   onClick={() => onStepChange(step.id)}
                   type="button"
-                  className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-left transition-all flex-shrink-0 touch-manipulation cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-left transition-all flex-shrink-0 border touch-manipulation cursor-pointer ${
+                    isMobileView
+                      ? 'min-w-[106px] w-auto'
+                      : 'xl:px-2.5 lg:flex-shrink min-w-[114px] lg:min-w-0 w-auto lg:w-full'
+                  } ${
                     isActive
-                      ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-600/20'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-xs ring-2 ring-blue-600/20'
+                      : 'bg-slate-50/70 border-slate-200/80 text-slate-600 hover:text-slate-900 hover:bg-slate-100 hover:border-slate-300'
                   }`}
                 >
                   <div
-                    className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                    className={`w-6 h-6 ${
+                      isMobileView ? '' : 'xl:w-7 xl:h-7'
+                    } rounded-lg flex items-center justify-center flex-shrink-0 ${
                       isActive
                         ? 'bg-white/20 text-white'
-                        : 'bg-slate-100 text-slate-600'
+                        : 'bg-white border border-slate-200/80 text-slate-600'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <Icon className="w-3.5 h-3.5" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-1">
-                      <span
-                        className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${
-                          isActive ? 'text-blue-100' : 'text-slate-400'
-                        }`}
-                      >
-                        {step.stageNum}
-                      </span>
-                      {step.id === 'S6_DECISION' && renderScoreBadge(isActive)}
+                  <div className="min-w-0 flex-1 leading-tight">
+                    <div
+                      className={`text-[8.5px] ${
+                        isMobileView ? '' : 'xl:text-[9.5px]'
+                      } font-bold uppercase tracking-tight truncate ${
+                        isActive ? 'text-blue-100' : 'text-slate-400'
+                      }`}
+                    >
+                      {step.stageNum}
                     </div>
-                    <div className="text-xs font-bold leading-tight whitespace-nowrap">
+                    <div
+                      className={`text-[11px] ${
+                        isMobileView ? '' : 'xl:text-xs'
+                      } font-extrabold truncate`}
+                    >
                       {step.name}
                     </div>
                   </div>
@@ -304,17 +298,19 @@ export const StepNav: React.FC<StepNavProps> = ({
           </div>
 
           {/* Desktop Toggle to Left Vertical Sidebar */}
-          <div className="hidden lg:flex items-center pl-2 border-l border-slate-200 flex-shrink-0">
-            <button
-              type="button"
-              onClick={onTogglePosition}
-              title="단계 메뉴를 좌측 세로 고정 사이드바로 전환"
-              className="h-9 px-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 text-slate-600 text-[11px] font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
-            >
-              <PanelLeft className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>좌측 세로</span>
-            </button>
-          </div>
+          {!isMobileView && (
+            <div className="hidden lg:flex items-center pl-2 border-l border-slate-200 flex-shrink-0">
+              <button
+                type="button"
+                onClick={onTogglePosition}
+                title="단계 메뉴를 좌측 세로 고정 사이드바로 전환"
+                className="h-9 px-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 text-slate-600 text-[11px] font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors cursor-pointer"
+              >
+                <PanelLeft className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>좌측 세로</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </nav>

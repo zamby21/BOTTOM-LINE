@@ -133,36 +133,36 @@ ${candidate.aiReport || verdict.summary}`;
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5 pb-24 print:p-0 print:space-y-4">
+    <div className="w-full space-y-5 pb-24 print:p-0 print:space-y-4">
       {/* Top Action Bar (hidden in print) */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 print:hidden">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-bold mb-1">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
+        <div className="min-w-0 flex-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-bold mb-1.5">
             <Sparkles className="w-3.5 h-3.5" />
             08 REPORT · AI 입점 심사 및 종합 리포트
           </div>
-          <h2 className="text-lg sm:text-xl font-bold text-slate-900">
+          <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             전문가 브리핑용 판정 리포트
           </h2>
         </div>
 
         {/* Action Buttons: Responsive Grid on Mobile */}
-        <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-center gap-2 w-full sm:w-auto sm:justify-end flex-shrink-0">
           <button
             type="button"
             onClick={handleGenerateAiReport}
             disabled={isGenerating}
-            className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs disabled:opacity-50 transition-all"
+            className="h-10 col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs disabled:opacity-50 transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
             {isGenerating ? (
               <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                Gemini 작성 중...
+                <RefreshCw className="w-3.5 h-3.5 animate-spin flex-shrink-0" />
+                <span>Gemini 작성 중...</span>
               </>
             ) : (
               <>
-                <Sparkles className="w-3.5 h-3.5" />
-                {candidate.aiReport ? 'AI 해설 다시 생성' : 'Gemini AI 해설 생성'}
+                <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>{candidate.aiReport ? 'AI 해설 다시 생성' : 'Gemini AI 해설 생성'}</span>
               </>
             )}
           </button>
@@ -170,19 +170,19 @@ ${candidate.aiReport || verdict.summary}`;
           <button
             type="button"
             onClick={handleCopy}
-            className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all"
+            className="h-10 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? '복사됨' : '요약 복사'}
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" /> : <Copy className="w-3.5 h-3.5 flex-shrink-0" />}
+            <span>{copied ? '복사됨' : '요약 복사'}</span>
           </button>
 
           <button
             type="button"
             onClick={handleShare}
-            className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all"
+            className="h-10 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            <Share2 className="w-3.5 h-3.5" />
-            {shared ? '링크 복사됨' : '모바일 공유'}
+            <Share2 className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>{shared ? '링크 복사됨' : '모바일 공유'}</span>
           </button>
 
           {onSaveSnapshot && (
@@ -193,20 +193,20 @@ ${candidate.aiReport || verdict.summary}`;
                 setSavedNotice(true);
                 setTimeout(() => setSavedNotice(false), 2000);
               }}
-              className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs transition-all"
+              className="h-10 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
             >
-              {savedNotice ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <BookmarkPlus className="w-3.5 h-3.5 text-blue-600" />}
-              {savedNotice ? '저장됨' : '이력 저장'}
+              {savedNotice ? <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" /> : <BookmarkPlus className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />}
+              <span>{savedNotice ? '저장됨' : '이력 저장'}</span>
             </button>
           )}
 
           <button
             type="button"
             onClick={handlePrint}
-            className="col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
+            className="h-10 col-span-2 sm:col-span-1 inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            <Printer className="w-3.5 h-3.5" />
-            인쇄/PDF 저장
+            <Printer className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>인쇄/PDF 저장</span>
           </button>
         </div>
       </div>

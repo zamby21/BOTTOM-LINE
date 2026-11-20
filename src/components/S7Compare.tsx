@@ -145,10 +145,10 @@ export const S7Compare: React.FC<S7CompareProps> = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-5 pb-24">
+    <div className="w-full space-y-5 pb-24">
       {/* Header */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-xs font-bold mb-1.5">
             <Scale className="w-3.5 h-3.5" />
             07 COMPARE · 후보지 다중 비교
@@ -156,15 +156,15 @@ export const S7Compare: React.FC<S7CompareProps> = ({
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             06 종합판정 후보지 다자간 비교 및 순위 검증
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             06 종합판정을 완료한 후보지들을 비교함에 모아 100점 만점 총점, 실질 순영업이익, 회수기간, 6대 규제를 비교합니다.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
           {/* Compared counter chip */}
-          <span className="px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-extrabold flex items-center gap-1">
-            <Scale className="w-3.5 h-3.5 text-indigo-600" />
+          <span className="h-9 px-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-extrabold inline-flex items-center gap-1 whitespace-nowrap tabular-nums">
+            <Scale className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             비교 등록 {comparedCandidates.length}곳 / 전체 {candidates.length}곳
           </span>
 
@@ -172,34 +172,34 @@ export const S7Compare: React.FC<S7CompareProps> = ({
           <button
             type="button"
             onClick={() => setShowManager(!showManager)}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-all"
+            className="h-9 inline-flex items-center gap-1.5 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs shadow-2xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            <Layers className="w-3.5 h-3.5 text-indigo-600" />
+            <Layers className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             <span>비교 대상 관리</span>
-            {showManager ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            {showManager ? <ChevronUp className="w-3.5 h-3.5 flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />}
           </button>
 
           {/* View mode toggle */}
           {comparedCandidates.length > 0 && (
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+            <div className="h-9 flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setViewMode('cards')}
-                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                className={`h-7 px-2.5 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
                   viewMode === 'cards' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'
                 }`}
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
+                <LayoutGrid className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>카드형</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all ${
+                className={`h-7 px-2.5 rounded-lg flex items-center gap-1 transition-all whitespace-nowrap cursor-pointer ${
                   viewMode === 'table' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500'
                 }`}
               >
-                <TableIcon className="w-3.5 h-3.5" />
+                <TableIcon className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>표형</span>
               </button>
             </div>
@@ -208,10 +208,10 @@ export const S7Compare: React.FC<S7CompareProps> = ({
           <button
             type="button"
             onClick={onAddNew}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-2xs transition-all"
+            className="h-9 inline-flex items-center gap-1.5 px-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-2xs transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" />
-            신규 매물 등록
+            <Plus className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>신규 매물 등록</span>
           </button>
         </div>
       </div>

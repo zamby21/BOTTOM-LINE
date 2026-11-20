@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+@layer base {
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
+
 @layer utilities {
   /* Hide scrollbar for Chrome, Safari and Opera */
   .no-scrollbar::-webkit-scrollbar {
@@ -10,6 +17,66 @@
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
   }
+}
+
+/* Dedicated Mobile Optimization View Mode (forces clean 1-column mobile UI on any screen width) */
+.mobile-view-mode main .sm\:grid-cols-2,
+.mobile-view-mode main .sm\:grid-cols-3,
+.mobile-view-mode main .sm\:grid-cols-4,
+.mobile-view-mode main .md\:grid-cols-2,
+.mobile-view-mode main .md\:grid-cols-3,
+.mobile-view-mode main .md\:grid-cols-4,
+.mobile-view-mode main .lg\:grid-cols-2,
+.mobile-view-mode main .lg\:grid-cols-3,
+.mobile-view-mode main .lg\:grid-cols-4,
+.mobile-view-mode main .lg\:grid-cols-5,
+.mobile-view-mode main .lg\:grid-cols-12,
+.mobile-view-mode main .xl\:grid-cols-2,
+.mobile-view-mode main .xl\:grid-cols-3,
+.mobile-view-mode main .xl\:grid-cols-4 {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.mobile-view-mode main [class*="sm:col-span-"],
+.mobile-view-mode main [class*="md:col-span-"],
+.mobile-view-mode main [class*="lg:col-span-"],
+.mobile-view-mode main [class*="xl:col-span-"] {
+  grid-column: span 1 / span 1 !important;
+}
+
+.mobile-view-mode main .sm\:flex-row,
+.mobile-view-mode main .md\:flex-row,
+.mobile-view-mode main .lg\:flex-row {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+
+.mobile-view-mode main .sm\:p-8,
+.mobile-view-mode main .sm\:p-10,
+.mobile-view-mode main .sm\:p-12,
+.mobile-view-mode main .lg\:p-8 {
+  padding: 1.125rem !important;
+}
+
+.mobile-view-mode main .sm\:p-6,
+.mobile-view-mode main .p-6 {
+  padding: 1rem !important;
+}
+
+.mobile-view-mode main .sm\:text-left {
+  text-align: left !important;
+}
+
+.mobile-view-mode main .sm\:inline {
+  display: none !important;
+}
+
+.mobile-view-mode main .sm\:w-auto {
+  width: 100% !important;
+}
+
+.mobile-view-mode main .sm\:flex-initial {
+  flex: 1 1 0% !important;
 }
 
 @media print {

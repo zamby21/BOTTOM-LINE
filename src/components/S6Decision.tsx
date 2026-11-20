@@ -42,6 +42,7 @@ import {
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
+  LabelList,
 } from 'recharts';
 import {
   calculateFinancialMetrics,
@@ -73,6 +74,8 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   onUpdateCandidate,
 }) => {
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
+  const [returnChartMetric, setReturnChartMetric] = React.useState<'margin' | 'roi'>('margin');
+  const [isDonutHovered, setIsDonutHovered] = React.useState(false);
   const metrics: FinancialMetrics = calculateFinancialMetrics(candidate);
   const riskEval: RiskEvaluation = evaluateRiskRules(candidate);
   const { scoreBreakdown, verdict } = calculateDecisionScore(metrics, riskEval);
@@ -82,6 +85,132 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   const sensitivityRows = simulateRevenueSensitivity(candidate);
   const costSensitivityRows = simulateCostSensitivity(candidate, 10);
   const locationCompetitiveness = evaluateLocationCompetitiveness(candidate, metrics, riskEval);
+
+  type RevenueMethodKey = 'openup' | 'unit_calc' | 'ai_estimate';
+  const activeRevenueMethod: RevenueMethodKey =
+    candidate.revenueSource === 'unit_calc'
+      ? 'unit_calc'
+      : candidate.revenueSource === 'ai_estimate'
+      ? 'ai_estimate'
+      : 'openup';
+
+  const hasStoredRevenueMap = candidate.revenueBySource !== undefined;
+  const savedRevenueByMethod: Record<RevenueMethodKey, number | undefined> = {
+    openup: hasStoredRevenueMap
+      ? candidate.revenueBySource?.openup
+      : activeRevenueMethod === 'openup'
+      ? candidate.grossRevenue
+      : undefined,
+    unit_calc: hasStoredRevenueMap
+      ? candidate.revenueBySource?.unit_calc
+      : activeRevenueMethod === 'unit_calc'
+      ? candidate.grossRevenue
+      : undefined,
+    ai_estimate: hasStoredRevenueMap
+      ? candidate.revenueBySource?.ai_estimate
+      : activeRevenueMethod === 'ai_estimate'
+      ? candidate.grossRevenue
+      : undefined,
+  };
+
+  const revenueMethodReturnData = (
+    [
+      {
+        key: 'openup' as RevenueMethodKey,
+        label: '오픈업 · 직접 입력',
+        shortLabel: '오픈업/직접',
+        activeColor: '#2563eb',
+        mutedColor: '#93c5fd',
+      },
+      {
+        key: 'unit_calc' as RevenueMethodKey,
+        label: '객단가 · 고객수 계산',
+        shortLabel: '객단가 계산',
+        activeColor: '#059669',
+        mutedColor: '#6ee7b7',
+      },
+      {
+        key: 'ai_estimate' as RevenueMethodKey,
+        label: 'Gemini AI 상권 추정',
+        shortLabel: 'AI 상권 추정',
+        activeColor: '#7c3aed',
+        mutedColor: '#c4b5fd',
+      },
+    ] as const
+  ).map((item) => {
+    const isSelected = activeRevenueMethod === item.key;
+    const savedGross = savedRevenueByMethod[item.key];
+    const effectiveGross = savedGross ?? (isSelected ? candidate.grossRevenue : undefined);
+    const hasValue = effectiveGross !== undefined;
+
+    if (!hasValue) {
+      return {
+        ...item,
+        isSelected,
+        hasValue: false,
+        grossRevenue: 0,
+        netRevenue: 0,
+        monthlyOperatingProfit: 0,
+        marginPct: 0,
+        roiPct: 0,
+        displayPct: 0,
+        barLabel: '미저장',
+        expectedScore: 0,
+        barColor: '#e2e8f0',
+      };
+    }
+
+    const simulatedMetrics = calculateFinancialMetrics({
+      ...candidate,
+      grossRevenue: effectiveGross,
+    });
+    const simulatedScore = calculateDecisionScore(simulatedMetrics, riskEval).scoreBreakdown.totalScore;
+    const marginPct = Number((simulatedMetrics.operatingProfitMargin * 100).toFixed(1));
+    const roiPct = Number((simulatedMetrics.annualRoi * 100).toFixed(1));
+    const displayPct = returnChartMetric === 'margin' ? marginPct : roiPct;
+
+    return {
+      ...item,
+      isSelected,
+      hasValue: true,
+      grossRevenue: effectiveGross,
+      netRevenue: Math.round(simulatedMetrics.monthlyRevenue),
+      monthlyOperatingProfit: Math.round(simulatedMetrics.monthlyOperatingProfit),
+      marginPct,
+      roiPct,
+      displayPct,
+      barLabel: `${displayPct.toFixed(1)}%`,
+      expectedScore: simulatedScore,
+      barColor:
+        displayPct < 0
+          ? isSelected
+            ? '#e11d48'
+            : '#fda4af'
+          : isSelected
+          ? item.activeColor
+          : item.mutedColor,
+    };
+  });
+
+  const activeReturnRow =
+    revenueMethodReturnData.find((d) => d.isSelected) || revenueMethodReturnData[0];
+  const savedReturnCount = revenueMethodReturnData.filter((d) => d.hasValue).length;
+
+  const handleSwitchRevenueMethodFromDecision = (methodKey: RevenueMethodKey) => {
+    if (!onUpdateCandidate) return;
+    const targetGross = savedRevenueByMethod[methodKey];
+    if (targetGross === undefined) return;
+    onUpdateCandidate({
+      ...candidate,
+      revenueSource: methodKey,
+      grossRevenue: targetGross,
+      revenueBySource: {
+        ...(savedRevenueByMethod.openup !== undefined ? { openup: savedRevenueByMethod.openup } : {}),
+        ...(savedRevenueByMethod.unit_calc !== undefined ? { unit_calc: savedRevenueByMethod.unit_calc } : {}),
+        ...(savedRevenueByMethod.ai_estimate !== undefined ? { ai_estimate: savedRevenueByMethod.ai_estimate } : {}),
+      },
+    });
+  };
 
   const handleLocationRatingChange = (
     key: 'hinterlandPopulation' | 'transitAccess' | 'visibility' | 'commercialVitality',
@@ -223,27 +352,27 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
   const activeDonutSlices = donutData.filter((d) => d.value > 0);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-5 pb-24">
+    <div className="w-full space-y-5 pb-24">
       {/* Step Header */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-bold mb-1">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-bold mb-1.5">
             <Award className="w-3.5 h-3.5" />
             06 DECISION (그래서 어떻게)
           </div>
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             종합 의사결정 판정 결과
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             수익성, 회수기간, 안전여유율, 임대료부담률, 6대 규제 룰을 100점 만점으로 정량화한 최종 판정입니다.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
           <button
             type="button"
             onClick={handleCompareClick}
-            className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-2xs ${
+            className={`h-10 flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl text-xs font-bold transition-colors shadow-2xs whitespace-nowrap flex-shrink-0 cursor-pointer ${
               candidate.addedToCompare
                 ? 'bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100'
                 : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -251,12 +380,12 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
           >
             {candidate.addedToCompare ? (
               <>
-                <Check className="w-3.5 h-3.5 text-indigo-600" />
+                <Check className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                 <span>비교함 등록됨</span>
               </>
             ) : (
               <>
-                <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                <Plus className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                 <span>비교함 담기</span>
               </>
             )}
@@ -266,10 +395,10 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
             <button
               type="button"
               onClick={handleSnapshotClick}
-              className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+              className="h-10 inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
               title="현재 판정 결과를 히스토리에 저장"
             >
-              <BookmarkPlus className="w-4 h-4 text-blue-600" />
+              <BookmarkPlus className="w-4 h-4 text-blue-600 flex-shrink-0" />
               <span>이력 저장</span>
             </button>
           )}
@@ -277,20 +406,20 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
           <button
             type="button"
             onClick={onGoToCompare}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 px-3.5 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+            className="h-10 flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            <Scale className="w-4 h-4 text-indigo-600" />
-            후보지 비교
+            <Scale className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+            <span>후보지 비교</span>
           </button>
 
           <button
             type="button"
             onClick={onGoToReport}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition-all"
+            className="h-10 min-w-[144px] flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            <Sparkles className="w-4 h-4" />
-            AI 리포트
-            <ArrowRight className="w-4 h-4" />
+            <Sparkles className="w-4 h-4 flex-shrink-0" />
+            <span>08 AI 리포트</span>
+            <ArrowRight className="w-4 h-4 flex-shrink-0" />
           </button>
         </div>
       </div>
@@ -527,58 +656,24 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
           </div>
 
           {activeDonutSlices.length > 0 ? (
-            <div className="relative w-full h-52 sm:h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={activeDonutSlices}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={56}
-                    outerRadius={82}
-                    paddingAngle={2}
-                    stroke="#ffffff"
-                    strokeWidth={2}
-                  >
-                    {activeDonutSlices.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    content={({ active, payload }) => {
-                      if (!active || !payload || payload.length === 0) return null;
-                      const item = payload[0]?.payload as (typeof donutData)[number] | undefined;
-                      if (!item) return null;
-                      return (
-                        <div className="bg-slate-900 text-white px-3 py-2 rounded-xl shadow-lg border border-slate-700 text-xs tabular-nums">
-                          <div className="font-bold flex items-center gap-1.5">
-                            <span
-                              className="w-2 h-2 rounded-full inline-block"
-                              style={{ backgroundColor: item.color }}
-                            />
-                            <span>{item.name}</span>
-                          </div>
-                          <div className="text-slate-200 font-mono font-bold mt-0.5">
-                            {item.value.toLocaleString()}만원 ({item.ratio.toFixed(1)}%)
-                          </div>
-                          <div className="text-[10px] text-slate-400 mt-0.5">{item.detail}</div>
-                        </div>
-                      );
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-
-              {/* Center Metric inside Donut Hole */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4 tabular-nums">
-                <span className="text-[10px] font-semibold text-slate-400">월 순매출</span>
-                <strong className="text-lg sm:text-xl font-black text-slate-900 leading-tight">
+            <div
+              className="relative w-full h-56 sm:h-60"
+              onMouseLeave={() => setIsDonutHovered(false)}
+            >
+              {/* Center Metric inside Donut Hole (placed behind Recharts tooltip layer) */}
+              <div
+                className={`absolute inset-0 z-0 flex flex-col items-center justify-center pointer-events-none text-center px-6 tabular-nums transition-opacity duration-150 ${
+                  isDonutHovered ? 'opacity-20' : 'opacity-100'
+                }`}
+              >
+                <span className="text-[10px] font-semibold text-slate-400 leading-tight">
+                  월 순매출
+                </span>
+                <strong className="text-base sm:text-lg font-black text-slate-900 leading-snug mt-0.5">
                   {roundedRevenue.toLocaleString()}만
                 </strong>
                 <span
-                  className={`text-[11px] font-bold mt-0.5 ${
+                  className={`text-[11px] font-bold mt-0.5 leading-tight ${
                     isOperatingProfit ? 'text-emerald-600' : 'text-rose-600'
                   }`}
                 >
@@ -586,6 +681,58 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                     ? `이익 ${(metrics.operatingProfitMargin * 100).toFixed(1)}%`
                     : `적자 ${Math.abs(roundedProfit).toLocaleString()}만`}
                 </span>
+              </div>
+
+              <div className="relative z-10 w-full h-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={activeDonutSlices}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={86}
+                      paddingAngle={2}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      onMouseEnter={() => setIsDonutHovered(true)}
+                      onMouseLeave={() => setIsDonutHovered(false)}
+                    >
+                      {activeDonutSlices.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      offset={18}
+                      wrapperStyle={{ zIndex: 40, pointerEvents: 'none', outline: 'none' }}
+                      content={({ active, payload }) => {
+                        if (!active || !payload || payload.length === 0) return null;
+                        const item = payload[0]?.payload as (typeof donutData)[number] | undefined;
+                        if (!item) return null;
+                        return (
+                          <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-xl border border-slate-700 text-xs tabular-nums whitespace-nowrap">
+                            <div className="font-bold flex items-center gap-1.5">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0"
+                                style={{ backgroundColor: item.color }}
+                              />
+                              <span>{item.name}</span>
+                            </div>
+                            <div className="text-white font-mono font-bold mt-1">
+                              {item.value.toLocaleString()}만원{' '}
+                              <span className="text-slate-300 font-semibold">
+                                ({item.ratio.toFixed(1)}%)
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5">{item.detail}</div>
+                          </div>
+                        );
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
               </div>
             </div>
           ) : (
@@ -676,6 +823,285 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                 </div>
               );
             })}
+          </div>
+        </div>
+      </div>
+
+      {/* Revenue Method Expected Return Rate Bar Chart (Recharts) */}
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm sm:text-base">
+                <BarChart3 className="w-4 h-4 text-blue-600" />
+                매출 산정 방식별 예상 수익률 비교
+              </h3>
+              <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold">
+                현재 적용: {activeReturnRow.label} ({returnChartMetric === 'margin' ? `${activeReturnRow.marginPct.toFixed(1)}%` : `${activeReturnRow.roiPct.toFixed(1)}%`})
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              03 매출 산정 단계에서 저장된 방식별 결제액 기준 {returnChartMetric === 'margin' ? '월 영업이익률(순이익÷순매출)' : '연 투자수익률(연 순이익÷초기투자금)'}을 막대 차트로 비교합니다.
+            </p>
+          </div>
+
+          {/* Metric Toggle: Operating Margin vs Annual ROI */}
+          <div className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold self-start md:self-auto flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setReturnChartMetric('margin')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+                returnChartMetric === 'margin'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              영업이익률 (%)
+            </button>
+            <button
+              type="button"
+              onClick={() => setReturnChartMetric('roi')}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+                returnChartMetric === 'roi'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              연 투자수익률 ROI (%)
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+          {/* Recharts BarChart */}
+          <div className="lg:col-span-7 space-y-1.5">
+            {returnChartMetric === 'margin' && (
+              <div className="flex items-center justify-end gap-3 text-[11px] text-slate-500 px-1">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700">
+                  <span className="w-4 border-t-2 border-dashed border-emerald-500 inline-block" />
+                  우량 영업이익률 기준선 (15%)
+                </span>
+              </div>
+            )}
+            <div className="w-full h-64 sm:h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={revenueMethodReturnData}
+                  margin={{ top: 28, right: 16, left: 0, bottom: 12 }}
+                  barCategoryGap="28%"
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis
+                    dataKey="shortLabel"
+                    tick={{ fill: '#334155', fontSize: 12, fontWeight: 700 }}
+                    axisLine={{ stroke: '#cbd5e1' }}
+                    tickLine={false}
+                    dy={6}
+                  />
+                  <YAxis
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={48}
+                    domain={[
+                      (dataMin: number) => (dataMin < 0 ? Math.floor(dataMin * 1.25 - 5) : 0),
+                      (dataMax: number) =>
+                        Math.max(
+                          returnChartMetric === 'margin' ? 20 : 15,
+                          Math.ceil(dataMax * 1.25 + 4)
+                        ),
+                    ]}
+                  />
+                  <ReferenceLine y={0} stroke="#64748b" strokeWidth={1.2} />
+                  {returnChartMetric === 'margin' && (
+                    <ReferenceLine
+                      y={15}
+                      stroke="#10b981"
+                      strokeDasharray="4 4"
+                      strokeWidth={1.5}
+                    />
+                  )}
+                  <Tooltip
+                    cursor={{ fill: '#f1f5f9' }}
+                    wrapperStyle={{ zIndex: 40, pointerEvents: 'none', outline: 'none' }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload || payload.length === 0) return null;
+                      const row = payload[0]?.payload as (typeof revenueMethodReturnData)[number] | undefined;
+                      if (!row) return null;
+                      return (
+                        <div className="bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-xl border border-slate-700 text-xs space-y-1 tabular-nums min-w-[190px]">
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-700 pb-1">
+                            <span className="font-extrabold">{row.label}</span>
+                            {row.isSelected && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-white text-[9px] font-black">
+                                적용중
+                              </span>
+                            )}
+                          </div>
+                          {row.hasValue ? (
+                            <div className="space-y-0.5 pt-0.5">
+                              <div className="flex justify-between gap-3 text-slate-300">
+                                <span>저장 월 결제액</span>
+                                <strong className="text-white">{row.grossRevenue.toLocaleString()}만원</strong>
+                              </div>
+                              <div className="flex justify-between gap-3 text-slate-300">
+                                <span>월 순영업이익</span>
+                                <strong className={row.monthlyOperatingProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                  {row.monthlyOperatingProfit.toLocaleString()}만원
+                                </strong>
+                              </div>
+                              <div className="flex justify-between gap-3 text-slate-300">
+                                <span>영업이익률</span>
+                                <strong className={row.marginPct >= 0 ? 'text-blue-300' : 'text-rose-400'}>
+                                  {row.marginPct.toFixed(1)}%
+                                </strong>
+                              </div>
+                              <div className="flex justify-between gap-3 text-slate-300">
+                                <span>연 투자수익률 (ROI)</span>
+                                <strong className={row.roiPct >= 0 ? 'text-amber-300' : 'text-rose-400'}>
+                                  {row.roiPct.toFixed(1)}%
+                                </strong>
+                              </div>
+                              <div className="flex justify-between gap-3 text-slate-400 pt-1 border-t border-slate-800">
+                                <span>예상 종합점수</span>
+                                <strong className="text-white">{row.expectedScore} / 100점</strong>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-slate-400 pt-0.5">
+                              03 매출 산정 단계에서 해당 방식을 입력·실행하면 예상 수익률이 자동 비교됩니다.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar
+                    dataKey="displayPct"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={68}
+                  >
+                    {revenueMethodReturnData.map((entry) => (
+                      <Cell
+                        key={entry.key}
+                        fill={entry.barColor}
+                        stroke={entry.isSelected ? '#0f172a' : 'none'}
+                        strokeWidth={entry.isSelected ? 1.5 : 0}
+                      />
+                    ))}
+                    <LabelList
+                      dataKey="barLabel"
+                      position="top"
+                      offset={8}
+                      style={{ fill: '#1e293b', fontSize: 11, fontWeight: 800 }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Per-Method Breakdown & Live Switcher Cards */}
+          <div className="lg:col-span-5 space-y-2.5">
+            {revenueMethodReturnData.map((row) => {
+              const canSwitch = row.hasValue && !row.isSelected && Boolean(onUpdateCandidate);
+              return (
+                <div
+                  key={row.key}
+                  onClick={() => {
+                    if (canSwitch) handleSwitchRevenueMethodFromDecision(row.key);
+                  }}
+                  className={`p-3 rounded-xl border transition-all tabular-nums ${
+                    row.isSelected
+                      ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+                      : row.hasValue
+                      ? 'bg-slate-50 border-slate-200 hover:border-blue-400 hover:bg-blue-50/40 cursor-pointer'
+                      : 'bg-slate-50/60 border-dashed border-slate-200 opacity-75'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                        style={{ backgroundColor: row.hasValue ? row.activeColor : '#cbd5e1' }}
+                      />
+                      <span className={`text-xs font-extrabold truncate ${row.isSelected ? 'text-white' : 'text-slate-800'}`}>
+                        {row.label}
+                      </span>
+                    </div>
+                    {row.isSelected ? (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-white text-[10px] font-black flex-shrink-0">
+                        적용중
+                      </span>
+                    ) : row.hasValue ? (
+                      <span className="text-[10px] font-bold text-blue-600 flex-shrink-0">
+                        클릭해 적용
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-semibold text-slate-400 flex-shrink-0">
+                        미저장
+                      </span>
+                    )}
+                  </div>
+
+                  {row.hasValue ? (
+                    <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
+                      <div>
+                        <span className={`block text-[10px] ${row.isSelected ? 'text-slate-400' : 'text-slate-500'}`}>
+                          월 결제액
+                        </span>
+                        <strong className={row.isSelected ? 'text-white' : 'text-slate-900'}>
+                          {row.grossRevenue.toLocaleString()}만
+                        </strong>
+                      </div>
+                      <div>
+                        <span className={`block text-[10px] ${row.isSelected ? 'text-slate-400' : 'text-slate-500'}`}>
+                          영업이익률
+                        </span>
+                        <strong
+                          className={
+                            row.marginPct >= 0
+                              ? row.isSelected
+                                ? 'text-emerald-400'
+                                : 'text-emerald-700'
+                              : 'text-rose-500'
+                          }
+                        >
+                          {row.marginPct.toFixed(1)}%
+                        </strong>
+                      </div>
+                      <div>
+                        <span className={`block text-[10px] ${row.isSelected ? 'text-slate-400' : 'text-slate-500'}`}>
+                          연 ROI
+                        </span>
+                        <strong
+                          className={
+                            row.roiPct >= 0
+                              ? row.isSelected
+                                ? 'text-amber-300'
+                                : 'text-blue-700'
+                              : 'text-rose-500'
+                          }
+                        >
+                          {row.roiPct.toFixed(1)}%
+                        </strong>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      03 매출 산정에서 값을 저장하면 수익률을 함께 비교할 수 있습니다.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+
+            {savedReturnCount < 3 && (
+              <p className="text-[11px] text-slate-400 leading-snug px-1">
+                * 현재 {savedReturnCount}개 방식의 매출이 저장되어 있습니다. 03 매출 산정 단계에서 나머지 방식도 계산·추정하면 3가지 방식의 예상 수익률 차이를 한눈에 비교할 수 있습니다.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -781,6 +1207,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                 <ReferenceLine y={0} stroke="#64748b" strokeWidth={1} />
                 <Tooltip
                   cursor={{ fill: 'rgba(241, 245, 249, 0.7)' }}
+                  wrapperStyle={{ zIndex: 40, pointerEvents: 'none', outline: 'none' }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload || payload.length === 0) return null;
                     return (
@@ -964,7 +1391,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
               <RadarChart
                 cx="50%"
                 cy="50%"
-                outerRadius="74%"
+                outerRadius="68%"
                 data={locationCompetitiveness.axes}
               >
                 <PolarGrid stroke="#e2e8f0" />
@@ -996,6 +1423,7 @@ export const S6Decision: React.FC<S6DecisionProps> = ({
                   fillOpacity={0.24}
                 />
                 <Tooltip
+                  wrapperStyle={{ zIndex: 40, pointerEvents: 'none', outline: 'none' }}
                   content={({ active, payload }) => {
                     if (!active || !payload || payload.length === 0) return null;
                     const axis = payload[0]?.payload as (typeof locationCompetitiveness.axes)[number] | undefined;

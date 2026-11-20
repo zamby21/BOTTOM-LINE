@@ -45,36 +45,36 @@ export const S4BottomLine: React.FC<S4BottomLineProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-5 pb-24">
+    <div className="w-full space-y-5 pb-24">
       {/* Header */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-xs font-bold mb-1">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-xs font-bold mb-1.5">
             <Calculator className="w-3.5 h-3.5" />
             04 BOTTOM-LINE (그래서 남는가)
           </div>
           <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             비용 구조 · 손익분기점 · 민감도 분석
           </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             변동비·인건비·임대료·공과금·감가상각 및 초기 운전자금까지 반영해 실제 월 영업현금흐름과 회수기간을 도출합니다.
           </p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
           <button
             type="button"
             onClick={onPrev}
-            className="px-3.5 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+            className="h-10 min-w-[76px] px-4 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-bold inline-flex items-center justify-center transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
             이전
           </button>
           <button
             type="button"
             onClick={onNext}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-sm transition-all"
+            className="h-10 min-w-[168px] flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            다음: 규제 점검
-            <ArrowRight className="w-3.5 h-3.5" />
+            <span>다음: 05 규제 점검</span>
+            <ArrowRight className="w-4 h-4 flex-shrink-0" />
           </button>
         </div>
       </div>

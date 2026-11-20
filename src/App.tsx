@@ -16,6 +16,8 @@ import { S8Report } from './components/S8Report';
 import { RegionMarketModal } from './components/RegionMarketModal';
 import { AnalysisHistoryModal } from './components/AnalysisHistoryModal';
 
+export type ViewMode = 'auto' | 'wide' | 'mobile';
+
 export default function App() {
   const [candidates, setCandidates] = useState<CandidateLocation[]>(() => {
     try {
@@ -58,6 +60,25 @@ export default function App() {
     }
     return 'top';
   });
+
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const saved = localStorage.getItem('bottomline_view_mode');
+      if (saved === 'auto' || saved === 'wide' || saved === 'mobile') return saved;
+    } catch {
+      // ignore
+    }
+    return 'auto';
+  });
+
+  const handleChangeViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('bottomline_view_mode', mode);
+    } catch {
+      // ignore
+    }
+  };
 
   const handleToggleNavPosition = () => {
     setNavPosition((prev) => {
@@ -281,9 +302,25 @@ export default function App() {
     persistHistory([]);
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* Top Fixed Header */}
+  const isMobileView = viewMode === 'mobile';
+  const headerContainerClass = isMobileView
+    ? 'w-full px-3'
+    : 'w-full px-3 sm:px-5 lg:px-6';
+  const mainContainerClass = isMobileView
+    ? 'flex-1 min-w-0 w-full px-3 py-3.5 pb-22'
+    : viewMode === 'wide'
+    ? 'flex-1 min-w-0 w-full px-3 sm:px-5 lg:px-6 py-4 sm:py-5 pb-24 lg:pb-10'
+    : 'flex-1 min-w-0 w-full max-w-[1440px] mx-auto px-3 sm:px-5 lg:px-6 py-4 sm:py-5 pb-24 lg:pb-10';
+
+  const appShell = (
+    <div
+      className={`min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white ${
+        isMobileView
+          ? 'w-full max-w-[430px] mx-auto sm:shadow-2xl sm:border-x sm:border-slate-200 mobile-view-mode relative'
+          : 'w-full'
+      }`}
+    >
+      {/* Top Fixed Header (Full-width so logo stays cleanly left-aligned) */}
       <Header
         candidates={candidates}
         activeCandidateId={activeCandidate.id}
@@ -295,10 +332,13 @@ export default function App() {
         onOpenRegionMarket={() => setIsRegionModalOpen(true)}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
         historyCount={history.length}
+        viewMode={viewMode}
+        onChangeViewMode={handleChangeViewMode}
+        containerClass={headerContainerClass}
       />
 
-      {/* Sticky Top Step Bar Navigation (always visible when in 'top' mode; on mobile also shown when 'left' mode is selected) */}
-      {navPosition === 'top' ? (
+      {/* Sticky Top Step Bar Navigation (always shown in 'top' or 'mobile' mode; on narrow screens also shown when 'left' mode is selected) */}
+      {isMobileView || navPosition === 'top' ? (
         <StepNav
           currentStep={currentStep}
           onStepChange={(step) => setCurrentStep(step)}
@@ -306,9 +346,11 @@ export default function App() {
           totalScore={activeScore.totalScore}
           position="top"
           onTogglePosition={handleToggleNavPosition}
+          isMobileView={isMobileView}
+          containerClass={headerContainerClass}
         />
       ) : (
-        <div className="lg:hidden sticky top-14 sm:top-16 z-30">
+        <div className="lg:hidden sticky top-14 sm:top-15 z-30">
           <StepNav
             currentStep={currentStep}
             onStepChange={(step) => setCurrentStep(step)}
@@ -316,13 +358,19 @@ export default function App() {
             totalScore={activeScore.totalScore}
             position="top"
             onTogglePosition={handleToggleNavPosition}
+            isMobileView={false}
+            containerClass={headerContainerClass}
           />
         </div>
       )}
 
-      {/* Body Wrapper (supports sticky left sidebar + main content) */}
-      <div className={`flex-1 flex w-full ${navPosition === 'left' ? 'items-start' : 'flex-col'}`}>
-        {navPosition === 'left' && (
+      {/* Body Wrapper (supports sticky left sidebar + fluid main content) */}
+      <div
+        className={`flex-1 flex w-full ${
+          !isMobileView && navPosition === 'left' ? 'items-start' : 'flex-col'
+        }`}
+      >
+        {!isMobileView && navPosition === 'left' && (
           <StepNav
             currentStep={currentStep}
             onStepChange={(step) => setCurrentStep(step)}
@@ -330,11 +378,13 @@ export default function App() {
             totalScore={activeScore.totalScore}
             position="left"
             onTogglePosition={handleToggleNavPosition}
+            isMobileView={false}
+            containerClass={headerContainerClass}
           />
         )}
 
-        {/* Main Content Area */}
-        <main className="flex-1 min-w-0 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 pb-24 lg:pb-12">
+        {/* Main Content Area (uniform width across all steps) */}
+        <main className={mainContainerClass}>
         {currentStep === 'S1_START' && (
           <S1Start
             candidates={candidates}
@@ -344,6 +394,7 @@ export default function App() {
             onOpenRegionMarket={() => setIsRegionModalOpen(true)}
             onOpenHistory={() => setIsHistoryModalOpen(true)}
             historyCount={history.length}
+            isMobileView={isMobileView}
           />
         )}
 
@@ -453,20 +504,33 @@ export default function App() {
         onStepChange={(step) => setCurrentStep(step)}
         onOpenReport={() => setCurrentStep('S8_REPORT')}
         onOpenCompare={() => setCurrentStep('S7_COMPARE')}
+        forceVisible={isMobileView}
       />
 
       {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-5 text-center text-xs text-slate-500 hidden lg:block print:hidden">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="font-extrabold text-slate-800">BOTTOM LINE</span>
-            <span>· 상업용 부동산 입점 의사결정 지원 솔루션</span>
+      {!isMobileView && (
+        <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500 hidden lg:block print:hidden">
+          <div className={`${headerContainerClass} flex flex-col sm:flex-row items-center justify-between gap-2`}>
+            <div className="flex items-center gap-2">
+              <span className="font-extrabold text-slate-800">BOTTOM LINE</span>
+              <span>· 상업용 부동산 입점 의사결정 지원 솔루션</span>
+            </div>
+            <p className="text-slate-400 text-[11px]">
+              Top-line(매출추정) 한계 극복 ➔ Bottom-line(비용) & 6대 Risk(규제) 종합 의사결정
+            </p>
           </div>
-          <p className="text-slate-400 text-[11px]">
-            Top-line(매출추정) 한계 극복 ➔ Bottom-line(비용) & 6대 Risk(규제) 종합 의사결정
-          </p>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
+
+  if (isMobileView) {
+    return (
+      <div className="min-h-screen w-full bg-slate-200/75 flex justify-center">
+        {appShell}
+      </div>
+    );
+  }
+
+  return appShell;
 }

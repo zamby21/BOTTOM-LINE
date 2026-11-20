@@ -845,7 +845,7 @@ export const S2Input: React.FC<S2InputProps> = ({
   const isDepositOver = convertedDeposit > regionLimit;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+    <div className="w-full space-y-5 pb-12">
       {/* Daum/Kakao Postcode Address Search Modal */}
       <AddressSearchModal
         isOpen={isAddressModalOpen}
@@ -854,27 +854,29 @@ export const S2Input: React.FC<S2InputProps> = ({
       />
 
       {/* Step Header */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-bold mb-2">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-bold mb-1.5">
             <MapPin className="w-3.5 h-3.5" />
             02 INPUT · 후보지 기본 정보 & 임대 조건
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+          <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             후보지 기본정보
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             위치(주소 검색 또는 지역 색인)와 세무서 기준 업종을 지정하면 <strong>환산보증금 기준, 교육환경보호구역, 위반건축물 위험도</strong>가 자동 세팅됩니다.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onNext}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-sm transition-all"
-        >
-          다음: 03 매출 산정
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
+          <button
+            type="button"
+            onClick={onNext}
+            className="h-10 min-w-[168px] flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
+          >
+            <span>다음: 03 매출 산정</span>
+            <ArrowRight className="w-4 h-4 flex-shrink-0" />
+          </button>
+        </div>
       </div>
 
       {/* 1. 후보지 기본정보 (위치 및 세무서 기준 업종) */}

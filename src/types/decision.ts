@@ -107,8 +107,27 @@ export interface CandidateLocation {
 
   // 매출 (Top-line, 만원 단위)
   revenueSource: 'openup' | 'ai_estimate' | 'unit_calc' | 'custom';
-  grossRevenue: number; // 결제액 (월 기준)
+  grossRevenue: number; // 현재 선택된 방식의 월 결제액 (다음 단계 비용 분석에 적용)
   isVatIncluded: boolean; // 부가세 포함 여부 (포함 시 공급가액 = grossRevenue / 1.1)
+
+  // 3가지 산정 방식별 개별 저장 월 결제액 (만원 단위)
+  revenueBySource?: {
+    openup?: number;
+    unit_calc?: number;
+    ai_estimate?: number;
+  };
+
+  // Gemini AI 상권 매출 추정 상세 메타데이터
+  aiEstimateMeta?: {
+    minMonthlyRevenue?: number;
+    maxMonthlyRevenue?: number;
+    recommendedRevenue?: number;
+    averageOrderValue?: number;
+    dailyTransactions?: number;
+    peakHours?: string;
+    reasoning?: string;
+    estimatedAt?: string;
+  };
 
   // 객단가 × 고객수 매출 계산기 보조 필드
   unitPrice?: number; // 평균 객단가 (원)

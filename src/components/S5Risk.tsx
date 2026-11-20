@@ -105,36 +105,36 @@ export const S5Risk: React.FC<S5RiskProps> = ({
   ];
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-24">
+    <div className="w-full space-y-5 pb-24">
       {/* Step Header */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 text-xs font-bold mb-2">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 text-xs font-bold mb-1.5">
             <ShieldAlert className="w-3.5 h-3.5" />
             05 RISK (해도 되는가)
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900">
+          <h2 className="text-lg sm:text-2xl font-bold text-slate-900">
             6대 법률·행정 규제 점검 & 실사 근거 기록
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             6대 규제 스크리닝 결과와 더불어, 현장·서류 실사 확인 근거와 계약서 필수 특약 문구를 정리합니다.
           </p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-shrink-0">
           <button
             type="button"
             onClick={onPrev}
-            className="px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+            className="h-10 min-w-[76px] px-4 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-bold inline-flex items-center justify-center transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
             이전
           </button>
           <button
             type="button"
             onClick={onNext}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-sm transition-all"
+            className="h-10 min-w-[168px] flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs sm:text-sm shadow-sm transition-colors whitespace-nowrap flex-shrink-0 cursor-pointer"
           >
-            다음: 04 종합 판정
-            <ArrowRight className="w-4 h-4" />
+            <span>다음: 06 종합 판정</span>
+            <ArrowRight className="w-4 h-4 flex-shrink-0" />
           </button>
         </div>
       </div>
