@@ -590,16 +590,22 @@ export const S2Input: React.FC<S2InputProps> = ({
             }
           }
 
-          if (parsed && typeof parsed === 'object') {
+          if (parsed && typeof parsed === 'object' && typeof parsed.success === 'boolean') {
             json = parsed;
             break;
           }
 
-          // Non-JSON proxy/server error (e.g., "A server error has occurred" or HTML 502/503 page)
+          // Non-JSON or platform/proxy error envelope (e.g., Vercel {"error":{"code":"500","message":"A server error has occurred"}})
+          const proxyErrMsg =
+            typeof parsed?.error === 'string'
+              ? parsed.error
+              : typeof parsed?.error?.message === 'string'
+              ? parsed.error.message
+              : '';
           lastFriendlyError =
-            response.status >= 500
-              ? '서버 또는 공공데이터포털 응답이 일시적으로 중단되었습니다. 잠시 후 [다시 시도]를 눌러주세요.'
-              : '건축물대장 API에서 올바른 JSON 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.';
+            response.status >= 500 || proxyErrMsg
+              ? '백엔드 API 서버 또는 공공데이터포털 응답이 일시적으로 중단되었습니다. 잠시 후 [다시 시도]를 눌러주세요.'
+              : '건축물대장 API에서 올바른 응답을 받지 못했습니다. 잠시 후 다시 시도해주세요.';
         } catch {
           lastFriendlyError = '건축물대장 API 통신 중 일시적인 네트워크 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
         }
